@@ -10,14 +10,14 @@ from housing.scrapers.apartments_dot_com import ApartmentsDotCom
 def main():
     test_scraper = ApartmentsDotCom()
     test_params = scraper.ScrapingParams(
-        min_bedrooms=2,
+        min_bedrooms=0,
         max_bedrooms=3,
-        zipcodes=[94158],
+        zipcodes=frozenset(['94158']),
         min_price=1000,
-        max_price=3000
+        max_price=5000
     )
-    
-    test_scraper.scrape_partial_listings(test_params)
+
+    test_scraper.scrape_search_results(test_params)
 
 
 main()
