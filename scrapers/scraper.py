@@ -114,6 +114,9 @@ class ScrapingParams(NamedTuple):
     min_price: int
     max_price: int
 
+    # Search metadata
+    max_results: int
+
 
 class Scraper:
     '''Universal scraping interface.'''

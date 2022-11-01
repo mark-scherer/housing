@@ -14,7 +14,8 @@ def main():
         max_bedrooms=3,
         zipcodes=frozenset(['94158']),
         min_price=1000,
-        max_price=5000
+        max_price=10000,
+        max_results=30
     )
 
     test_scraper.scrape_search_results(test_params)
