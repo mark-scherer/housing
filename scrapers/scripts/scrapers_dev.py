@@ -1,6 +1,7 @@
 '''Various scraper testing.'''
 
 import sys
+import json
 
 import glog
 
@@ -18,7 +19,9 @@ def main():
         max_results=30
     )
 
-    test_scraper.scrape_search_results(test_params)
+    test_results = test_scraper.scrape_search_results(test_params)
+    results_obj = [pl._asdict() for pl in test_results]
+    glog.info(f'Results: {json.dumps(results_obj)}')
 
 
 main()

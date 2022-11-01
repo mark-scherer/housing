@@ -207,7 +207,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_num_pages(cls, soup: BeautifulSoup) -> Optional[int]:
+    def _parse_num_result_pages(cls, soup: BeautifulSoup) -> Optional[int]:
         '''Return the total number of pages if parseable.'''
         num_pages = None
         page_count_element = soup.find(class_=cls.PAGE_COUNT_CLASS)
@@ -253,7 +253,7 @@ class ApartmentsDotCom(scraper.Scraper):
                     glog.warning(f'error parsing search result element (page: {current_page}, element: {i}), skipping: {e}')
                 
             if num_pages is None:
-                num_pages = cls._parse_num_pages(soup) or cls.DEFAULT_NUM_PAGES
+                num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
             
             # Parse number of search result pages if haven't already.
             search_results += new_results
@@ -280,7 +280,6 @@ class ApartmentsDotCom(scraper.Scraper):
         ]
         glog.info(f'..finished search, parsed {len(search_results)} from {current_page} pages then filtered to {len(filtered_searched_results)} eligible results.')
 
-        search_results_obj = [pl._asdict() for pl in filtered_searched_results]
-        glog.info(f'Results: {json.dumps(search_results_obj)}')
+        return filtered_searched_results
 
 
