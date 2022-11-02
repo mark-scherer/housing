@@ -21,13 +21,13 @@ class Address(NamedTuple):
     city: str
     state: str
     zipcode: str
-    unit: Optional[str] = None
+    unit_num: Optional[str] = None
 
 
     def id(self) -> str:
         '''Unique ID for Addrress.'''
         id_elements = [
-            self.unit,
+            self.unit_num,
             self.short_address,
             self.zipcode,
         ]
@@ -59,14 +59,14 @@ class Address(NamedTuple):
         short_address_elements = [element for element in short_address_elements if element is not None]
         short_address = ' '.join(short_address_elements)
 
-        unit = address_info.get('OccupancyIdentifier')
+        unit_num = address_info.get('OccupancyIdentifier')
 
         return Address(
             short_address=short_address,
             city=address_info['PlaceName'],
             state=address_info['StateName'],
             zipcode=address_info['ZipCode'],
-            unit=unit
+            unit_num=unit_num
         )
 
 
@@ -77,22 +77,34 @@ class SearchResult(NamedTuple):
     address: Address
 
 
+class Unit(NamedTuple):
+    '''Unit includes all data intrinstic to physical unit itself and can be shared by multiple listings.'''
+    address: Address
+    bedrooms: BedroomCount
+
+    def to_dict(self) -> Dict:
+        '''_asdict() does not serialize properly and can't be overriden for NamedTuple, so must make our own.'''
+        result = self._asdict()
+        result['address'] = self.address._asdict()  # Must call this on nested NamedTuple manually
+        return result
+
+
 class Listing(NamedTuple):
     '''A complete listing.'''
 
-    # Metadata
-    id: str
-    name: str  # human readable ID
-
     # Unit details
-    bedrooms: int
-
-    # Location details
-    zipcode: str
+    unit: Unit
 
     # Listing details
     price: int
     source: str
+
+    def to_dict(self) -> Dict:
+        '''_asdict() does not serialize properly and can't be overriden for NamedTuple, so must make our own.'''
+        result = self._asdict()
+        result['unit'] = self.unit.to_dict()  # Must call this on nested NamedTuple manually
+        return result
+
 
 
 # This should probably stay here
@@ -129,8 +141,8 @@ class Scraper:
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
 
     @classmethod
-    def scrape_listing(cls, SearchResult) -> Listing:
-        '''Fully scrape a partial listing.'''
+    def scrape_listings(cls, SearchResult) -> List[Listing]:
+        '''Fully scrape a search result. A single results can return multiple listings.'''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
 
     @classmethod

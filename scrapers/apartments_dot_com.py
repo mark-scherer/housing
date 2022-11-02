@@ -10,6 +10,7 @@ from typing import Any, List, Dict, Optional
 import json
 import re
 import math
+import traceback
 
 from bs4 import BeautifulSoup, Tag
 import glog
@@ -57,7 +58,10 @@ class ApartmentsDotComSearchResult(scraper.SearchResult):
 class ApartmentsDotCom(scraper.Scraper):
     '''Apartments.com scraper.'''
 
+    SOURCE = 'apartments.com'
     USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36'
+
+    # Search result scraping params.
     DATA_BLOCK_TYPE = 'application/ld+json'
     SEARCH_RESULT_ELEMENT_TYPE = 'article'
     SEARCH_RESULT_ID_ATTRIBUTE = 'data-listingid'
@@ -68,6 +72,17 @@ class ApartmentsDotCom(scraper.Scraper):
     SEARCH_RESULT_BEDROOMS_CLASSES = ['property-beds', 'bed-range']
     PAGE_COUNT_CLASS = 'pageRange'
     DEFAULT_NUM_PAGES = 1
+
+    # Listing scraping params.
+    ALL_RESULTS_TAB_ATTRIBUTE_NAME = 'data-tab-content-id'
+    ALL_RESULTS_TAB_ATTRIBUTE_VALUE = 'all'
+    UNIT_TYPE_CLASS = 'hasUnitGrid'
+    UNIT_TYPE_METADATA_CONTAINER_CLASS = 'priceGridModelWrapper'
+    UNIT_TYPE_ID_ATTRIBUTE = 'data-rentalkey'
+    UNIT_TYPE_METADATA_CLASS = 'detailsTextWrapper'
+    UNIT_TYPE_LISTINGS_CLASS = 'unitContainer'
+    LISTING_UNIT_NUM_CLASS = 'unitColumn'
+    LISTING_PRICE_CLASS = 'pricingColumn'
 
 
     @classmethod
@@ -137,6 +152,45 @@ class ApartmentsDotCom(scraper.Scraper):
         address = scraper.Address.from_full_address(full_address_str)
         return address
 
+    
+    @classmethod
+    def _parse_bedrooms(cls, bedrooms_str: str) -> scraper.BedroomCount:
+        """Parse the number of bedrooms from a formatted string."""
+        
+        assert '-' not in bedrooms_str, 'Found "-", must split string before passing to _parse_bedrooms()'
+        
+        bedrooms_str = bedrooms_str.lower()
+        bedrooms_str = re.sub('bed(s)?', '', bedrooms_str)
+        bedrooms_str = bedrooms_str.replace(' ', '')
+        bedrooms_str = bedrooms_str.split(',')[0]
+        bedrooms_str = bedrooms_str.replace('studio', '0')
+        
+        return int(bedrooms_str)
+
+
+    @classmethod
+    def _parse_price(cls, price_str: str) -> int:
+        """Parse price from a formmatted string."""
+
+        assert '-' not in price_str, 'Found "-", must split string before passing to _parse_price()'
+
+        price_str = price_str.replace('price', '')
+        price_str = price_str.replace('$', '')
+        price_str = price_str.replace(',', '')
+        price_str = price_str.replace(' ', '')
+        price_str = price_str.replace('/mo', '')
+        return int(price_str)
+
+
+    @classmethod
+    def _parse_unit_num(cls, unit_num_str: str) -> str:
+        """Parse unit_num from a formmated string."""
+
+        unit_num_str = unit_num_str.lower()
+        unit_num_str = unit_num_str.replace('unit', '')
+        unit_num_str = unit_num_str.lstrip().rstrip()
+        return unit_num_str
+
 
     @classmethod
     def _parse_search_result_element(cls, result_element: Tag) -> ApartmentsDotComSearchResult:
@@ -163,31 +217,26 @@ class ApartmentsDotCom(scraper.Scraper):
             max_price = None
             pricing_element = result_element.find(class_=cls.SEARCH_RESULT_PRICING_CLASSES)
             assert pricing_element is not None, 'could not find pricing element'
-
-            pricing_str = pricing_element.text.replace('$', '').replace(',', '').replace(' ', '')
-            pricing_str = pricing_str.replace('/mo', '')
+            pricing_str = pricing_element.text
             if '-' in pricing_str:
                 min_price_str, max_price_str = pricing_str.split('-')
-                min_price = int(min_price_str)
-                max_price = int(max_price_str)
+                min_price = cls._parse_price(min_price_str)
+                max_price = cls._parse_price(max_price_str)
             else:
-                min_price = max_price = int(pricing_str)
+                min_price = max_price = cls._parse_price(pricing_str)
 
             # Parse bedrooms.
             min_bedrooms = None
             max_bedroomss = None
             bedrooms_element = result_element.find(class_=cls.SEARCH_RESULT_BEDROOMS_CLASSES)
             assert bedrooms_element is not None, 'could not find bedrooms element'
-
-            bedrooms_str = re.sub('bed(s)?', '', bedrooms_element.text.lower()).replace(' ', '')
-            bedrooms_str = bedrooms_str.split(',')[0]
-            bedrooms_str = bedrooms_str.replace('studio', '0')
+            bedrooms_str = bedrooms_element.text
             if '-' in bedrooms_str:
                 min_bedrooms_str, max_bedrooms_str = bedrooms_str.split('-')
-                min_bedrooms = int(min_bedrooms_str)
-                max_bedrooms = int(max_bedrooms_str)
+                min_bedrooms = cls._parse_bedrooms(min_bedrooms_str)
+                max_bedrooms = cls._parse_bedrooms(max_bedrooms_str)
             else:
-                min_bedrooms = max_bedrooms = int(bedrooms_str)
+                min_bedrooms = max_bedrooms = cls._parse_bedrooms(bedrooms_str)
 
             result = ApartmentsDotComSearchResult(
                 id=id,
@@ -250,7 +299,7 @@ class ApartmentsDotCom(scraper.Scraper):
                     parsed_result = cls._parse_search_result_element(result_element)
                     new_results.append(parsed_result)
                 except Exception as e:
-                    glog.warning(f'error parsing search result element (page: {current_page}, element: {i}), skipping: {e}')
+                    glog.warning(f'error parsing search result element (page: {current_page}, element: {i}), skipping: {traceback.format_exc()}')
                 
             if num_pages is None:
                 num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
@@ -281,5 +330,87 @@ class ApartmentsDotCom(scraper.Scraper):
         glog.info(f'..finished search, parsed {len(search_results)} from {current_page} pages then filtered to {len(filtered_searched_results)} eligible results.')
 
         return filtered_searched_results
+
+
+    @classmethod
+    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: scraper.Address) -> List[scraper.Listing]:
+        """Parse listings grid for given unit type.
+        
+        'Unit Type' is single result box with fixed floor plan.
+        Each search result can have multiple, and each can have multiple listings at different prices.
+
+        Currently ignores available info that's not stored in Listing:
+        - images
+        - floorplan
+        - sq footage
+        - bathrooms
+        - available date
+        """
+
+        listings = []
+        unit_type_id = None
+        try:
+            unit_type_metadata_element = unit_type_html.find(class_=cls.UNIT_TYPE_METADATA_CONTAINER_CLASS)
+            unit_type_id = unit_type_metadata_element[cls.UNIT_TYPE_ID_ATTRIBUTE]
+
+            # Parse unit type metadata.
+            unit_type_metadata_str = unit_type_metadata_element.find(class_=cls.UNIT_TYPE_METADATA_CLASS).text
+            
+            # Ignore bathrooms, sq footage data for now.
+            bedrooms_str, bathrooms_str, *sq_footage_strs = unit_type_metadata_str.split(',')
+            bedrooms = cls._parse_bedrooms(bedrooms_str)
+
+            # Parse listings.
+            listing_elements = unit_type_html.find_all(class_=cls.UNIT_TYPE_LISTINGS_CLASS)
+            for element in listing_elements:
+                unit_num_str = element.find(class_=cls.LISTING_UNIT_NUM_CLASS).text
+                unit_num = cls._parse_unit_num(unit_num_str)
+                price_str = element.find(class_=cls.LISTING_PRICE_CLASS).text
+                price = cls._parse_price(price_str)
+
+                address = scraper.Address(
+                    short_address=building_address.short_address,
+                    city=building_address.city,
+                    state=building_address.state,
+                    zipcode=building_address.zipcode,
+                    unit_num=unit_num
+                )
+                unit = scraper.Unit(
+                    address=address,
+                    bedrooms=bedrooms,
+                )
+                listing = scraper.Listing(
+                    unit=unit,
+                    price=price,
+                    source= cls.SOURCE
+                )
+                listings.append(listing)
+
+        except Exception as e:
+            exception_type = type(e)
+            raise exception_type(f'Error parsing listings from unit type {unit_type_id}: {e}')
+
+        return listings
+
+
+
+    @classmethod
+    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult) -> List[scraper.Listing]:
+        '''Fully scrape an apartments.com search result.'''
+        listings = []
+        try:
+            soup = cls.get_url(search_result.url)
+            all_results_tab_element = soup.find(attrs={cls.ALL_RESULTS_TAB_ATTRIBUTE_NAME: cls.ALL_RESULTS_TAB_ATTRIBUTE_VALUE})
+            unit_type_elements = all_results_tab_element.find_all(class_=cls.UNIT_TYPE_CLASS)
+            for i, unit_type in enumerate(unit_type_elements):
+                unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=search_result.address)
+                listings += unit_type_listings
+            glog.info(f'found {len(unit_type_elements)} different unit types for search result')
+        
+        except Exception as e:
+            exception_type = type(e)
+            raise exception_type(f'Error fully scraping searh result {search_result.id}: {e}')
+        
+        return listings
 
 
