@@ -74,16 +74,27 @@ class ApartmentsDotCom(scraper.Scraper):
     PAGE_COUNT_CLASS = 'pageRange'
     DEFAULT_NUM_PAGES = 1
 
-    # Listing scraping params.
-    ALL_RESULTS_TAB_ATTRIBUTE_NAME = 'data-tab-content-id'
-    ALL_RESULTS_TAB_ATTRIBUTE_VALUE = 'all'
+    # Listing scraping params: multi-listing search results.
+    ALL_UNITS_TAB_ATTRIBUTE_NAME = 'data-tab-content-id'
+    ALL_UNITS_TAB_ATTRIBUTE_VALUE = 'all'
     UNIT_TYPE_CLASS = 'hasUnitGrid'
     UNIT_TYPE_METADATA_CONTAINER_CLASS = 'priceGridModelWrapper'
     UNIT_TYPE_ID_ATTRIBUTE = 'data-rentalkey'
     UNIT_TYPE_METADATA_CLASS = 'detailsTextWrapper'
     UNIT_TYPE_LISTINGS_CLASS = 'unitContainer'
+
+    # Listing scraping params: single-listing search result.
+    LISTING_ADDRESS_CLASSES = ['propertyNameRow', 'propertyAddressRow']
+    LISTING_NEIGHBORHOOD_CLASS = 'neighborhoodAddress'
+    LISTING_DETAILS_CELL_CLASS = 'priceBedRangeInfoInnerContainer'
+    LISTING_DETAILS_CELL_LABEL_PRICE = 'Monthly Rent'
+    LISTING_DETAILS_CELL_LABEL_BEDROOMS = 'Bedrooms'
+
+
+    # Generic listing scraping params.
     LISTING_UNIT_NUM_CLASS = 'unitColumn'
     LISTING_PRICE_CLASS = 'pricingColumn'
+
 
 
     @classmethod
@@ -148,6 +159,15 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
+    def _sanitize_string(cls, input: str) -> str:
+        '''Remove any newlines, consecutive spaces, etc.'''
+        result = input
+        result = re.sub('\n|\r', ' ', result)  # Cleanup address newlines, tabs.
+        result = re.sub(' {2,}', ' ', result).strip()  # Cleanup spaces.
+        return result
+
+
+    @classmethod
     def _parse_address_from_elements(cls, address_elements: List[Tag]) -> scraper.Address:
         '''Helper for parsing address from the text combination from multiple elements.'''
         assert len(address_elements) > 0, 'could not find address element'
@@ -163,7 +183,7 @@ class ApartmentsDotCom(scraper.Scraper):
         assert '-' not in bedrooms_str, 'Found "-", must split string before passing to _parse_bedrooms()'
         
         bedrooms_str = bedrooms_str.lower()
-        bedrooms_str = re.sub('bed(s)?', '', bedrooms_str)
+        bedrooms_str = re.sub('b(e)?d(s)?', '', bedrooms_str)
         bedrooms_str = bedrooms_str.replace(' ', '')
         bedrooms_str = bedrooms_str.split(',')[0]
         bedrooms_str = bedrooms_str.replace('studio', '0')
@@ -330,7 +350,6 @@ class ApartmentsDotCom(scraper.Scraper):
                 result.min_bedrooms <= params.max_bedrooms and result.max_bedrooms >= params.min_bedrooms and \
                 result.address.zipcode == zipcode
         ]
-        glog.info(f'..finished search, parsed {len(search_results)} from {current_page} pages then filtered to {len(filtered_searched_results)} eligible results.')
 
         return filtered_searched_results
 
@@ -397,21 +416,81 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
+    def _parse_multi_listing_search_result(cls, page_soup: BeautifulSoup, building_address: scraper.Address) -> List[scraper.Listing]:
+        '''Parse all listings from a multi-listing search result page.'''
+        
+        all_results_tab_element = page_soup.find(attrs={cls.ALL_UNITS_TAB_ATTRIBUTE_NAME: cls.ALL_UNITS_TAB_ATTRIBUTE_VALUE})
+        unit_type_elements = all_results_tab_element.find_all(class_=cls.UNIT_TYPE_CLASS)
+
+        listings = []
+        for unit_type in unit_type_elements:
+            unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=building_address)
+            listings += unit_type_listings
+
+        return listings
+
+
+    @classmethod
+    def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup) -> scraper.Listing:
+        '''Parse Listing from single-listing search result page.'''
+        
+        # Parse address.
+        address_lines = [element.text for element in page_soup.find_all(class_=cls.LISTING_ADDRESS_CLASSES)]
+        neighborhood_element = page_soup.find(class_=cls.LISTING_NEIGHBORHOOD_CLASS)
+        neighborhood_str = neighborhood_element.text if neighborhood_element else ''
+        address_str = ' '.join(address_lines).replace(neighborhood_str, '')  # Join address lines and remove neighboorhood string.
+        address_str = cls._sanitize_string(address_str)
+        address = scraper.Address.from_full_address(address_str)
+        
+        listing_detail_elements = page_soup.find_all(class_=cls.LISTING_DETAILS_CELL_CLASS)
+
+        # Parse bedrooms.
+        bedrooms_detail_cell_element = next(filter(lambda element: cls.LISTING_DETAILS_CELL_LABEL_BEDROOMS in element.text, listing_detail_elements))
+        bedrooms_str = bedrooms_detail_cell_element.text.replace(cls.LISTING_DETAILS_CELL_LABEL_BEDROOMS, '')
+        bedrooms_str = cls._sanitize_string(bedrooms_str)
+        bedrooms = cls._parse_bedrooms(bedrooms_str)
+
+        # Parse price.
+        price_detail_cell_element = next(filter(lambda element: cls.LISTING_DETAILS_CELL_LABEL_PRICE in element.text, listing_detail_elements))
+        price_str = price_detail_cell_element.text.replace(cls.LISTING_DETAILS_CELL_LABEL_PRICE, '')
+        price_str = cls._sanitize_string(price_str)
+        price = cls._parse_price(price_str)
+
+        unit = scraper.Unit(
+            address=address,
+            bedrooms=bedrooms
+        )
+        return scraper.Listing(
+            unit=unit,
+            price=price,
+            source=cls.SOURCE
+        )
+
+
+    @classmethod
     def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: config.ScrapingParams) -> List[scraper.Listing]:
         '''Fully scrape an apartments.com search result.'''
+        
         listings = []
         try:
             soup = cls.get_url(search_result.url)
-            all_results_tab_element = soup.find(attrs={cls.ALL_RESULTS_TAB_ATTRIBUTE_NAME: cls.ALL_RESULTS_TAB_ATTRIBUTE_VALUE})
-            unit_type_elements = all_results_tab_element.find_all(class_=cls.UNIT_TYPE_CLASS)
-            for i, unit_type in enumerate(unit_type_elements):
-                unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=search_result.address)
-                unit_type_valid_listings = [l for l in unit_type_listings if cls.is_valid_listing(listing=l, params=scraping_params)]
-                listings += unit_type_valid_listings
-            glog.info(f'found {len(unit_type_elements)} different unit types for search result')
-        
+
+            all_results_tab_element = soup.find(attrs={cls.ALL_UNITS_TAB_ATTRIBUTE_NAME: cls.ALL_UNITS_TAB_ATTRIBUTE_VALUE})
+            multi_unit = all_results_tab_element is not None
+
+            # Parse search results with multiple units.
+            if multi_unit:
+                listings += cls._parse_multi_listing_search_result(page_soup=soup, building_address=search_result.address)
+
+            # Parse simple, single-listing search results.
+            else:
+                listings += [cls._parse_single_listing_search_result(page_soup=soup)]
+
+            # Filter to only valid listings.
+            listings = [l for l in listings if cls.is_valid_listing(listing=l, params=scraping_params)]
+
         except Exception as e:
             exception_type = type(e)
-            raise exception_type(f'Error fully scraping searh result {search_result.id}: {e}')
+            raise exception_type(f'Error fully scraping searh result {search_result.id} ({search_result.url}): {e}') from e
         
         return listings
