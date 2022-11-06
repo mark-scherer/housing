@@ -110,13 +110,29 @@ class Scraper:
 
     @classmethod
     def scrape_search_results(cls, params: config.ScrapingParams) -> List[SearchResult]:
-        '''Scrape partial listings from a search page.'''
+        '''Scrape search results (format is source-specific) for a given ScrapingParams.'''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
 
     @classmethod
-    def scrape_listings(cls, search_result: SearchResult) -> List[Listing]:
-        '''Fully scrape a search result. A single results can return multiple listings.'''
+    def scrape_listings(cls, search_result: SearchResult, scraping_params: config.ScrapingParams) -> List[Listing]:
+        '''Fully scrape a single search result. Can return multiple listings.'''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
+
+    @classmethod
+    def search_and_scrape(cls, params: config.ScrapingParams) -> List[Listing]:
+        '''Search given ScrapingParams and then fully scrape listings from each result.'''
+        search_results = cls.scrape_search_results(params=params)
+        glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
+
+        listings = []
+        for i, result in enumerate(search_results):
+            result_listings = cls.scrape_listings(search_result=result, scraping_params=params)
+            listings += result_listings
+            glog.info(f'..scraped result {i} / {len(search_results)}, found {len(result_listings)} new listings - now {len(listings)} total')
+        
+        glog.info(f'..{cls.__name__} scraper finished scraping all {len(search_results)} search results, found {len(listings)} listings.')
+        return listings
+
 
     @classmethod
     @lru_cache(maxsize=100)
