@@ -1,7 +1,7 @@
 '''Universal scraping interface.'''
 
 from functools import lru_cache
-from typing import NamedTuple, FrozenSet, List, Dict, Optional, Union
+from typing import NamedTuple, List, Dict, Optional, Union
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,10 +10,7 @@ import glog
 import uszipcode
 import usaddress
 
-
-# Custom type to handle Studios.
-# Studios represented as 0 Bedrooms
-BedroomCount = int
+from housing.configs import config
 
 
 class Address(NamedTuple):
@@ -80,7 +77,7 @@ class SearchResult(NamedTuple):
 class Unit(NamedTuple):
     '''Unit includes all data intrinstic to physical unit itself and can be shared by multiple listings.'''
     address: Address
-    bedrooms: BedroomCount
+    bedrooms: config.BedroomCount
 
     def to_dict(self) -> Dict:
         '''_asdict() does not serialize properly and can't be overriden for NamedTuple, so must make our own.'''
@@ -106,42 +103,18 @@ class Listing(NamedTuple):
         return result
 
 
-
-# This should probably stay here
-class ScrapingParams(NamedTuple):
-    '''Params for defining a single scrape.
-    
-    Notes:
-    - min values are inclusive, max values are exclusive
-    '''
-
-    # Unit params
-    min_bedrooms: int
-    max_bedrooms: int
-
-    # Location params
-    zipcodes: FrozenSet[str]
-
-    # Listing parms
-    min_price: int
-    max_price: int
-
-    # Search metadata
-    max_results: int
-
-
 class Scraper:
     '''Universal scraping interface.'''
 
     zipcode_client = uszipcode.SearchEngine()
 
     @classmethod
-    def scrape_search_results(cls, ScrapingParams) -> List[SearchResult]:
+    def scrape_search_results(cls, params: config.ScrapingParams) -> List[SearchResult]:
         '''Scrape partial listings from a search page.'''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
 
     @classmethod
-    def scrape_listings(cls, SearchResult) -> List[Listing]:
+    def scrape_listings(cls, search_result: SearchResult) -> List[Listing]:
         '''Fully scrape a search result. A single results can return multiple listings.'''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
 
@@ -165,7 +138,7 @@ class Scraper:
         return soup
 
     @classmethod
-    def is_valid_listing(cls, listing: Listing, params: ScrapingParams) -> bool:
+    def is_valid_listing(cls, listing: Listing, params: config.ScrapingParams) -> bool:
         '''Check if listing meets all scraping params.'''
         return  params.min_price <= listing.price <= params.max_price and \
             params.min_bedrooms <= listing.unit.bedrooms <= params.max_bedrooms and \

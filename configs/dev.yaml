@@ -1,0 +1,16 @@
+# Example configs to help with development.
+# Mission Bay, SF
+
+config:
+
+  # We'll eventually include other config metadata.
+
+  scraping_params:
+    zipcodes:
+      - 94158
+    
+    min_bedrooms: 1
+    max_bedrooms: 2
+
+    min_price: 0
+    max_price: 4000

@@ -15,6 +15,7 @@ import traceback
 from bs4 import BeautifulSoup, Tag
 import glog
 
+from housing.configs import config
 from housing.scrapers import scraper, schema_dot_org
 
 BASE_URL = 'https://www.apartments.com/'
@@ -31,8 +32,8 @@ class ApartmentsDotComSearchResult(scraper.SearchResult):
     max_price: int
 
     # Range of bedrooms found at building
-    min_bedrooms: scraper.BedroomCount
-    max_bedrooms: scraper.BedroomCount
+    min_bedrooms: config.BedroomCount
+    max_bedrooms: config.BedroomCount
 
 
     def __new__(cls, id, url, address, min_price, max_price, min_bedrooms, max_bedrooms):
@@ -89,7 +90,7 @@ class ApartmentsDotCom(scraper.Scraper):
     @lru_cache(maxsize=100)
     def _get_search_url(
         cls, 
-        params: scraper.ScrapingParams, 
+        params: config.ScrapingParams, 
         zipcode: str,
         page: int
     ) -> str:
@@ -156,7 +157,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
     
     @classmethod
-    def _parse_bedrooms(cls, bedrooms_str: str) -> scraper.BedroomCount:
+    def _parse_bedrooms(cls, bedrooms_str: str) -> config.BedroomCount:
         """Parse the number of bedrooms from a formatted string."""
         
         assert '-' not in bedrooms_str, 'Found "-", must split string before passing to _parse_bedrooms()'
@@ -272,7 +273,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def scrape_search_results(cls, params: scraper.ScrapingParams) -> List[ApartmentsDotComSearchResult]:
+    def scrape_search_results(cls, params: config.ScrapingParams) -> List[ApartmentsDotComSearchResult]:
         '''Scrape search results from the search page.'''
         assert len(params.zipcodes) == 1, 'Do not yet support multiple zipcodes.'
         zipcode, = params.zipcodes
@@ -396,7 +397,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: scraper.ScrapingParams) -> List[scraper.Listing]:
+    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: config.ScrapingParams) -> List[scraper.Listing]:
         '''Fully scrape an apartments.com search result.'''
         listings = []
         try:
