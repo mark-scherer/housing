@@ -163,3 +163,10 @@ class Scraper:
         
         soup = BeautifulSoup(response.text, 'html.parser')
         return soup
+
+    @classmethod
+    def is_valid_listing(cls, listing: Listing, params: ScrapingParams) -> bool:
+        '''Check if listing meets all scraping params.'''
+        return  params.min_price <= listing.price <= params.max_price and \
+            params.min_bedrooms <= listing.unit.bedrooms <= params.max_bedrooms and \
+            listing.unit.address.zipcode in params.zipcodes

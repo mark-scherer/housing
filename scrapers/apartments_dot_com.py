@@ -109,7 +109,9 @@ class ApartmentsDotCom(scraper.Scraper):
             else f'{params.min_bedrooms}-to-{params.max_bedrooms}-bedrooms'
 
         # Get price clause.
-        price_clause = f'{params.min_price}-to-{params.max_price}'
+        price_clause = f'{params.min_price}-to-{params.max_price}' \
+            if params.min_price > 0 \
+            else f'under-{params.max_price}'
 
         # Get pagination clause
         pagination_clause = str(page) if page > 1 else ''
@@ -393,9 +395,8 @@ class ApartmentsDotCom(scraper.Scraper):
         return listings
 
 
-
     @classmethod
-    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult) -> List[scraper.Listing]:
+    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: scraper.ScrapingParams) -> List[scraper.Listing]:
         '''Fully scrape an apartments.com search result.'''
         listings = []
         try:
@@ -404,7 +405,8 @@ class ApartmentsDotCom(scraper.Scraper):
             unit_type_elements = all_results_tab_element.find_all(class_=cls.UNIT_TYPE_CLASS)
             for i, unit_type in enumerate(unit_type_elements):
                 unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=search_result.address)
-                listings += unit_type_listings
+                unit_type_valid_listings = [l for l in unit_type_listings if cls.is_valid_listing(listing=l, params=scraping_params)]
+                listings += unit_type_valid_listings
             glog.info(f'found {len(unit_type_elements)} different unit types for search result')
         
         except Exception as e:
@@ -412,5 +414,3 @@ class ApartmentsDotCom(scraper.Scraper):
             raise exception_type(f'Error fully scraping searh result {search_result.id}: {e}')
         
         return listings
-
-
