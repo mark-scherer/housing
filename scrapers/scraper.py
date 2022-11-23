@@ -1,70 +1,17 @@
 '''Universal scraping interface.'''
 
 from functools import lru_cache
-from typing import NamedTuple, List, Dict, Optional, Union
+from typing import NamedTuple, List, Dict
 
 import requests
 from bs4 import BeautifulSoup
 import glog
 
 import uszipcode
-import usaddress
 
 from housing.configs import config
-
-
-class Address(NamedTuple):
-    short_address: str
-    city: str
-    state: str
-    zipcode: str
-    unit_num: Optional[str] = None
-
-
-    def id(self) -> str:
-        '''Unique ID for Addrress.'''
-        id_elements = [
-            self.unit_num,
-            self.short_address,
-            self.zipcode,
-        ]
-        id = '-'.join([element for element in id_elements if element is not None])
-        id.replace(' ', '-').lower()
-        return id
-
-
-    @staticmethod
-    def from_full_address(full_address: str) -> 'Address':
-        '''Parse Address from full address string.'''
-
-        def _validate_parsed_address_info(address_info: Dict, full_address: str) -> None:
-            '''Validate parsed usaddress included all needed info.'''
-            REQUIRED_FIELDS = ['AddressNumber', 'StreetName', 'StreetNamePostType', 'PlaceName', 'StateName', 'ZipCode']
-            for field in REQUIRED_FIELDS:
-                assert field in address_info, f'address string missing required element ({field}): {full_address} {address_info}'
-
-
-        address_info, _ = usaddress.tag(full_address)
-        _validate_parsed_address_info(address_info, full_address)
-        
-        short_address_elements = [
-            address_info.get('AddressNumber'),
-            address_info.get('StreetNamePreDirectional'),
-            address_info.get('StreetName'),
-            address_info.get('StreetNamePostType')
-        ]
-        short_address_elements = [element for element in short_address_elements if element is not None]
-        short_address = ' '.join(short_address_elements)
-
-        unit_num = address_info.get('OccupancyIdentifier')
-
-        return Address(
-            short_address=short_address,
-            city=address_info['PlaceName'],
-            state=address_info['StateName'],
-            zipcode=address_info['ZipCode'],
-            unit_num=unit_num
-        )
+from housing.data.address import Address
+from housing.data.schema import Listing
 
 
 class SearchResult(NamedTuple):
@@ -72,35 +19,6 @@ class SearchResult(NamedTuple):
     id: str         # Site-specific unique ID for search result
     url: str        # Url to allow full scraping of the search result.
     address: Address
-
-
-class Unit(NamedTuple):
-    '''Unit includes all data intrinstic to physical unit itself and can be shared by multiple listings.'''
-    address: Address
-    bedrooms: config.BedroomCount
-
-    def to_dict(self) -> Dict:
-        '''_asdict() does not serialize properly and can't be overriden for NamedTuple, so must make our own.'''
-        result = self._asdict()
-        result['address'] = self.address._asdict()  # Must call this on nested NamedTuple manually
-        return result
-
-
-class Listing(NamedTuple):
-    '''A complete listing.'''
-
-    # Unit details
-    unit: Unit
-
-    # Listing details
-    price: int
-    source: str
-
-    def to_dict(self) -> Dict:
-        '''_asdict() does not serialize properly and can't be overriden for NamedTuple, so must make our own.'''
-        result = self._asdict()
-        result['unit'] = self.unit.to_dict()  # Must call this on nested NamedTuple manually
-        return result
 
 
 class Scraper:

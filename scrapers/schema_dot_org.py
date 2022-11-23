@@ -2,17 +2,18 @@
 
 from typing import Dict
 
+from housing.data.address import Address
 from housing.scrapers import scraper
 
 
-def parse_postal_address(postal_address: Dict) -> scraper.Address:
+def parse_postal_address(postal_address: Dict) -> Address:
     '''Parse schema.org PostalAddress into a Address'''
     short_address = postal_address['streetAddress']
     city = postal_address['addressLocality']
     state = postal_address['addressRegion']
     zipcode = postal_address['postalCode']
 
-    return scraper.Address(
+    return Address(
         short_address=short_address,
         city=city,
         state=state,

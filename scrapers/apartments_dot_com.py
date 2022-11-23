@@ -6,16 +6,17 @@ TODO:
 
 from os import path
 from functools import lru_cache
-from typing import Any, List, Dict, Optional
+from typing import List, Dict, Optional
 import json
 import re
-import math
 import traceback
 
 from bs4 import BeautifulSoup, Tag
 import glog
 
 from housing.configs import config
+from housing.data.address import Address
+from housing.data.schema import Unit, Listing
 from housing.scrapers import scraper, schema_dot_org
 
 BASE_URL = 'https://www.apartments.com/'
@@ -168,11 +169,11 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_address_from_elements(cls, address_elements: List[Tag]) -> scraper.Address:
+    def _parse_address_from_elements(cls, address_elements: List[Tag]) -> Address:
         '''Helper for parsing address from the text combination from multiple elements.'''
         assert len(address_elements) > 0, 'could not find address element'
         full_address_str = ' '.join([element.text for element in address_elements])
-        address = scraper.Address.from_full_address(full_address_str)
+        address = Address.from_full_address(full_address_str)
         return address
 
     
@@ -355,7 +356,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: scraper.Address) -> List[scraper.Listing]:
+    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: Address) -> List[Listing]:
         """Parse listings grid for given unit type.
         
         'Unit Type' is single result box with fixed floor plan.
@@ -390,18 +391,18 @@ class ApartmentsDotCom(scraper.Scraper):
                 price_str = element.find(class_=cls.LISTING_PRICE_CLASS).text
                 price = cls._parse_price(price_str)
 
-                address = scraper.Address(
+                address = Address(
                     short_address=building_address.short_address,
                     city=building_address.city,
                     state=building_address.state,
                     zipcode=building_address.zipcode,
                     unit_num=unit_num
                 )
-                unit = scraper.Unit(
+                unit = Unit(
                     address=address,
                     bedrooms=bedrooms,
                 )
-                listing = scraper.Listing(
+                listing = Listing(
                     unit=unit,
                     price=price,
                     source= cls.SOURCE
@@ -416,7 +417,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_multi_listing_search_result(cls, page_soup: BeautifulSoup, building_address: scraper.Address) -> List[scraper.Listing]:
+    def _parse_multi_listing_search_result(cls, page_soup: BeautifulSoup, building_address: scraper.Address) -> List[Listing]:
         '''Parse all listings from a multi-listing search result page.'''
         
         all_results_tab_element = page_soup.find(attrs={cls.ALL_UNITS_TAB_ATTRIBUTE_NAME: cls.ALL_UNITS_TAB_ATTRIBUTE_VALUE})
@@ -431,7 +432,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup) -> scraper.Listing:
+    def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup) -> Listing:
         '''Parse Listing from single-listing search result page.'''
         
         # Parse address.
@@ -440,7 +441,7 @@ class ApartmentsDotCom(scraper.Scraper):
         neighborhood_str = neighborhood_element.text if neighborhood_element else ''
         address_str = ' '.join(address_lines).replace(neighborhood_str, '')  # Join address lines and remove neighboorhood string.
         address_str = cls._sanitize_string(address_str)
-        address = scraper.Address.from_full_address(address_str)
+        address = Address.from_full_address(address_str)
         
         listing_detail_elements = page_soup.find_all(class_=cls.LISTING_DETAILS_CELL_CLASS)
 
@@ -456,11 +457,11 @@ class ApartmentsDotCom(scraper.Scraper):
         price_str = cls._sanitize_string(price_str)
         price = cls._parse_price(price_str)
 
-        unit = scraper.Unit(
+        unit = Unit(
             address=address,
             bedrooms=bedrooms
         )
-        return scraper.Listing(
+        return Listing(
             unit=unit,
             price=price,
             source=cls.SOURCE
@@ -468,7 +469,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: config.ScrapingParams) -> List[scraper.Listing]:
+    def scrape_listings(cls, search_result: ApartmentsDotComSearchResult, scraping_params: config.ScrapingParams) -> List[Listing]:
         '''Fully scrape an apartments.com search result.'''
         
         listings = []
