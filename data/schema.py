@@ -42,7 +42,9 @@ class Unit:
     other_info: Optional[Dict] = None
     
     def to_dict(self) -> Dict:
-        return asdict(self)
+        result = asdict(self)
+        result['address'] = self.address.to_dict()
+        return result
 
 
 @mapper_registry.mapped
@@ -68,7 +70,9 @@ class Listing:
     url: str
 
     def to_dict(self) -> Dict:
-        return asdict(self)
+        result = asdict(self)
+        result['unit'] = self.unit.to_dict()
+        return result
 
 
 def main():

@@ -5,10 +5,20 @@ from typing import Optional, Dict
 import json
 
 import usaddress
+import glog
 
 
 @dataclass
 class Address:
+    SERIALIZATION_ELEMENT_FIELDS = [
+        'unit_num',
+        'short_address',
+        'city',
+        'state',
+        'zipcode'
+    ]
+    SERIALIZATION_DELIMITER = '-'
+
     short_address: str
     city: str
     state: str
@@ -19,13 +29,17 @@ class Address:
         return asdict(self)
     
     def to_string(self) -> str:
-        return '-'.join([
-            self.unit_num or '',
-            self.short_address,
-            self.city,
-            self.state,
-            self.zipcode
-        ]).lower()
+        element_values = [self[field] for field in self.SERIALIZATION_ELEMENT_FIELDS]
+        return self.SERIALIZATION_DELIMITER.join(element_values.lower())
+
+    def to_display_string(self) -> str:
+        return f'#{self.unit_num} {self.short_address}, {self.zipcode}'
+
+    @classmethod
+    def from_string(cls, input: str) -> 'Address':
+        element_values = {field: value for field, value in zip(cls.SERIALIZATION_ELEMENT_FIELDS, input.split(cls.SERIALIZATION_DELIMITER))}
+        result = Address(**element_values)
+        return result
 
     @staticmethod
     def from_full_address(full_address: str) -> 'Address':
