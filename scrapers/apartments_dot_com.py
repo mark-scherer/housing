@@ -356,7 +356,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: Address) -> List[Listing]:
+    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: Address, url: str) -> List[Listing]:
         """Parse listings grid for given unit type.
         
         'Unit Type' is single result box with fixed floor plan.
@@ -406,7 +406,8 @@ class ApartmentsDotCom(scraper.Scraper):
                 listing = Listing(
                     unit=unit,
                     price=price,
-                    source= cls.SOURCE
+                    url=url,
+                    source=cls.SOURCE
                 )
                 listings.append(listing)
 
@@ -418,7 +419,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_multi_listing_search_result(cls, page_soup: BeautifulSoup, building_address: scraper.Address) -> List[Listing]:
+    def _parse_multi_listing_search_result(cls, page_soup: BeautifulSoup, building_address: scraper.Address, url: str) -> List[Listing]:
         '''Parse all listings from a multi-listing search result page.'''
         
         all_results_tab_element = page_soup.find(attrs={cls.ALL_UNITS_TAB_ATTRIBUTE_NAME: cls.ALL_UNITS_TAB_ATTRIBUTE_VALUE})
@@ -426,7 +427,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
         listings = []
         for unit_type in unit_type_elements:
-            unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=building_address)
+            unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=building_address, url=url)
             listings += unit_type_listings
 
         return listings
@@ -483,7 +484,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
             # Parse search results with multiple units.
             if multi_unit:
-                listings += cls._parse_multi_listing_search_result(page_soup=soup, building_address=search_result.address)
+                listings += cls._parse_multi_listing_search_result(page_soup=soup, building_address=search_result.address, url=search_result.url)
 
             # Parse simple, single-listing search results.
             else:

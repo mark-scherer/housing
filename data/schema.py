@@ -4,7 +4,8 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict
 
 import glog
-from sqlalchemy import Column, engine_from_config, ForeignKey, JSON, Integer, String, Table
+from sqlalchemy import Column, engine_from_config, ForeignKey, JSON, Integer, String, Table, DateTime
+from sqlalchemy.sql import func
 from sqlalchemy.orm import registry, relationship
 
 from housing.configs import config
@@ -28,6 +29,7 @@ class Unit:
         'housing_units',
         mapper_registry.metadata,
         Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
         Column('address_str', String(100), nullable=False, unique=True, index=True),
         Column('bedrooms', Integer, nullable=False),
         Column('other_info', JSON),
@@ -53,14 +55,17 @@ class Listing:
         mapper_registry.metadata,
         Column('id', Integer, primary_key=True, autoincrement=True),
         Column('unit_id', Integer, ForeignKey('housing_units.id'), nullable=False, index=True),
+        Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+        Column('source', String[50], nullable=False),
         Column('price', Integer, nullable=False),
-        Column('source', String[50], nullable=False)
+        Column('url', String[100], nullable=False),
     )
 
     id: int = field(init=False)
     unit: Unit
     price: int
     source: str
+    url: str
 
     def to_dict(self) -> Dict:
         return asdict(self)
