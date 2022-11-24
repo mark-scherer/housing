@@ -400,6 +400,7 @@ class ApartmentsDotCom(scraper.Scraper):
                 )
                 unit = Unit(
                     address=address,
+                    address_str=address.to_string(),
                     bedrooms=bedrooms,
                 )
                 listing = Listing(
@@ -459,6 +460,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
         unit = Unit(
             address=address,
+            address_str=address.to_string(),
             bedrooms=bedrooms
         )
         return Listing(

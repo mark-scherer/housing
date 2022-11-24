@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict
+import json
 
 import usaddress
 
@@ -14,20 +15,17 @@ class Address:
     zipcode: str
     unit_num: Optional[str] = None
 
-    def id(self) -> str:
-        '''Unique ID for Addrress.'''
-        id_elements = [
-            self.unit_num,
-            self.short_address,
-            self.zipcode,
-        ]
-        id = '-'.join([element for element in id_elements if element is not None])
-        id.replace(' ', '-').lower()
-        return id
-
-
     def to_dict(self) -> Dict:
         return asdict(self)
+    
+    def to_string(self) -> str:
+        return '-'.join([
+            self.unit_num or '',
+            self.short_address,
+            self.city,
+            self.state,
+            self.zipcode
+        ]).lower()
 
     @staticmethod
     def from_full_address(full_address: str) -> 'Address':

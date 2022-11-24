@@ -27,19 +27,18 @@ class Unit:
     __table__ = Table(
         'housing_units',
         mapper_registry.metadata,
-        Column('id', Integer, primary_key=True),
-        Column('address_hash', String(50), nullable=False, unique=True, index=True),
-        Column('address_json', JSON, nullable=False),
+        Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('address_str', String(100), nullable=False, unique=True, index=True),
         Column('bedrooms', Integer, nullable=False),
         Column('other_info', JSON),
     )
 
     id: int = field(init=False)
-    address_hash: str = field(init=False)
-    address: Address
+    address_str: str  # For storing in the DB.
+    address: Address  # For working with in python
     bedrooms: config.BedroomCount
     other_info: Optional[Dict] = None
-
+    
     def to_dict(self) -> Dict:
         return asdict(self)
 
@@ -52,7 +51,7 @@ class Listing:
     __table__ = Table(
         'housing_listings',
         mapper_registry.metadata,
-        Column('id', Integer, primary_key=True),
+        Column('id', Integer, primary_key=True, autoincrement=True),
         Column('unit_id', Integer, ForeignKey('housing_units.id'), nullable=False, index=True),
         Column('price', Integer, nullable=False),
         Column('source', String[50], nullable=False)

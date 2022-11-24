@@ -39,7 +39,7 @@ class Scraper:
     @classmethod
     def search_and_scrape(cls, params: config.ScrapingParams) -> List[Listing]:
         '''Search given ScrapingParams and then fully scrape listings from each result.'''
-        search_results = cls.scrape_search_results(params=params)
+        search_results = cls.scrape_search_results(params=params)[0:1]
         glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
 
         listings = []
