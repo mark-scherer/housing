@@ -22,6 +22,12 @@ TEST_SORT_GRIDRANGE = GridRange(
     min_row=1,
     max_row=100
 )
+SMART_UPDATE_DATA = [
+    {'primary_key': '1', 'colA': 11},
+    {'primary_key': '2', 'colB': 22},
+    {'primary_key': '5', 'colC': 555},
+]
+HEADERS = ['primary_key', 'colA', 'colB', 'colC']
 
 def main():
 
@@ -31,14 +37,16 @@ def main():
     glog.info(f'..Created client')
     
     # Fetch sheet data
-    sheet_data = client.get()
+    # sheet_data = client.get()
+    sheet_data = client.smart_get(headers=HEADERS)
     glog.info(f'Got original sheet data: {json.dumps(sheet_data)}')
 
     # Update sheet data & refetch
     # client.update(_range=UPDATE_RANGE, _values=UPDATE_VALUES)
     # client.append(_range=UPDATE_RANGE, _values=[NEW_ROW, NEW_ROW])
-    client.smart_append(_values=SMART_APPEND_DATA, sort_key='headerA', sort_asc=False)
+    # client.smart_append(_values=SMART_APPEND_DATA, sort_key='headerA', sort_asc=False)
     # client.sort(1, grid_range=TEST_SORT_GRIDRANGE, asc=False)
+    client.smart_update(_values=SMART_UPDATE_DATA, headers=HEADERS, primary_key='primary_key')
     sheet_data = client.get()
     glog.info(f'Got updated sheet data: {json.dumps(sheet_data)}')
 

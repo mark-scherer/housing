@@ -55,6 +55,11 @@ class GoogleSheetsClient:
 
     MAX_ROWS = 999
 
+    @staticmethod
+    def row_col_num_to_A1(row_num: int, col_num: int) -> str:
+        '''Convert 0-based row & col nums to A1 notation.'''
+        return f'{chr(ord("A") + col_num)}{row_num + 1}'
+
     def __init__(self, spreadsheet_id: str):
         self.creds = self._get_creds()
         self.service = build('sheets', 'v4', credentials=self.creds)
@@ -77,6 +82,34 @@ class GoogleSheetsClient:
         return response['values']
 
 
+    def smart_get(self, headers: List[str], sheet_data: Optional[SheetData] = None) -> SmartSheetData:
+        '''Get sheet data by intelligently finding headers and converting rows to dicts.
+        
+        Args:
+            headers: list of santized row headers to include in output
+            sheet_data: optional prefetched sheet data, if omitted will refetch
+
+        Return: List of rows as dicts
+        '''
+        if not sheet_data:
+            sheet_data = self.get()
+        header_to_col_num, header_row_num = self._find_headers(sheet_data=sheet_data, possible_headers=headers)
+        max_row = len(sheet_data)
+        result = []
+        for i in range(header_row_num+1, max_row):
+            row_result = {}
+            for header, col_num in header_to_col_num.items():
+                row_data = sheet_data[i]
+                if col_num >= len(row_data):
+                    continue
+                cell_data = row_data[col_num]
+                if cell_data:
+                    row_result[header] = cell_data
+            if row_result:
+                result.append(row_result)
+        return result
+
+
     def update(self, _range: str, _values: SheetData) -> None:
         '''Update sheet data. 
         
@@ -97,6 +130,57 @@ class GoogleSheetsClient:
             body=request_body,
             valueInputOption=UPDATE_VALUE_INPUT_OPTION,
         )
+        request.execute()
+
+
+    def smart_update(self, _values: SmartSheetData, headers: List[str], primary_key: str) -> None:
+        '''Update sheet data by intelligently finding rows in existing data using the primary key header.
+        
+        Args:
+            _values: list of row changes to make, including primary_key + all cells to update.
+            headers: list of all headers with updates to be made.
+            primary_key: header with primary key to find row to update by.
+        '''
+        current_sheet_data = self.get()
+        header_to_col_num, header_row_num = self._find_headers(sheet_data=current_sheet_data, possible_headers=headers)
+        current_sheet_data_smart = self.smart_get(headers=headers, sheet_data=current_sheet_data)
+        
+        primary_key_to_row_num = {}
+        for row_num, current_row in enumerate(current_sheet_data_smart):
+            if primary_key in current_row:
+                primary_key_to_row_num[current_row[primary_key]] = row_num + header_row_num + 1  # Plus 1 for header row.
+
+        glog.info(f'built primary_key_to_row_num (header_row_num: {header_row_num}): {json.dumps(primary_key_to_row_num)}')
+        
+        update_requests = []
+        for i, updated_row in enumerate(_values):
+            if primary_key not in updated_row:
+                raise ValueError(f'Update row {i} did not specify value for primary_key field {primary_key}: {json.dumps(updated_row)}')
+            primary_key_value = updated_row[primary_key]
+            
+            if primary_key_value not in primary_key_to_row_num:
+                raise ValueError(f'Could not find primary key value {primary_key_value} for updated row {i} in sheet: primary_key_values: {primary_key_to_row_num.keys()}')
+            row_num = primary_key_to_row_num[primary_key_value]
+
+            for header, updated_cell in updated_row.items():
+                if header == primary_key:
+                    continue
+
+                if header not in header_to_col_num:
+                    raise ValueError(f'Could not find header {header} in sheet, which is requested to be updated by update row {i}: found headers: {header_to_col_num.keys()}')    
+                col_num = header_to_col_num[header]
+                
+                update = {
+                    'range': self.row_col_num_to_A1(row_num, col_num),
+                    'values': [[updated_cell]]
+                }
+                update_requests.append(update)
+        
+        request_body = {
+            'data': update_requests,
+            'valueInputOption': UPDATE_VALUE_INPUT_OPTION,
+        }
+        request = self.sheet.values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
         request.execute()
 
 
@@ -159,8 +243,6 @@ class GoogleSheetsClient:
         existing_sheet_data = self.get()
         possible_headers = list(_values[0].keys())
         header_to_col_num, header_row_num = self._find_headers(sheet_data=existing_sheet_data, possible_headers=possible_headers)
-        if not header_row_num:
-            raise ValueError(f'Could not find any of these provided headers ({possible_headers}) in existing sheet: {json.dumps(existing_sheet_data)}')
         
         # Create cell values to append.
         min_col_num = header_to_col_num[next(iter(header_to_col_num))]
@@ -186,7 +268,7 @@ class GoogleSheetsClient:
         table_tl = f'{chr(ord("A") + min_col_num)}{header_row_num}'
         self.append(_range=table_tl, _values=append_data)
 
-        # Resort, if desired.
+        # Re-sort, if desired.
         if sort_key:
             if sort_key not in header_to_col_num:
                 raise ValueError(f'Did not find column to sort by ({sort_key}) in headers: {header_to_col_num.keys()}')
@@ -252,7 +334,6 @@ class GoogleSheetsClient:
             '''Helper for determining if two headers are considered a match.'''
             return _sanitize_header(header_1) == _sanitize_header(header_2)
         
-        result = None
         header_to_col_num = OrderedDict()
         header_row_num = None
         for i, existing_row in enumerate(sheet_data):
@@ -272,11 +353,10 @@ class GoogleSheetsClient:
                 # Since found header row, stop looking through rows.
                 break
 
-        if header_row_num:
-            result = HeaderData(header_to_col_num=header_to_col_num, header_row_num=header_row_num)
-            glog.info(f'Found these headers headers at row {header_row_num}: {json.dumps(header_to_col_num)}')
+        if not header_row_num:
+            raise ValueError(f'Could not find any of these provided headers ({possible_headers}) in existing sheet: {json.dumps(sheet_data)}')
         
-        return result
+        return HeaderData(header_to_col_num=header_to_col_num, header_row_num=header_row_num)
 
 
     def _get_creds_oauth(self, token_filepath: Optional[str] = DEFAULT_TOKEN_FILEPATH) -> Credentials:
