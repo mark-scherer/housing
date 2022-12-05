@@ -54,18 +54,32 @@ class GoogleSheetsClient:
     '''Helper for interacting with google sheets.'''
 
     MAX_ROWS = 999
+    MAX_COLS = 26
 
     @staticmethod
     def row_col_num_to_A1(row_num: int, col_num: int) -> str:
         '''Convert 0-based row & col nums to A1 notation.'''
         return f'{chr(ord("A") + col_num)}{row_num + 1}'
 
-    def __init__(self, spreadsheet_id: str):
+    def __init__(self, spreadsheet_id: str, possible_headers: List[str]):
+        '''Create GoogleSheetsClient.
+        
+        Args:
+            spreadsheet_id: Google sheet string id, 
+                ex: https://docs.google.com/spreadsheets/d/<spreadsheet_id>/edit#gid=0
+            possible_headers: list of expected sheet headers (sanitized)
+        '''
+
         self.creds = self._get_creds()
         self.service = build('sheets', 'v4', credentials=self.creds)
         self.sheet = self.service.spreadsheets()
         
         self.spreadsheet_id = spreadsheet_id
+        self.possible_headers = possible_headers
+
+        self.header_to_col_num = None
+        self.header_row_num = None
+        self.sheet_data = self.get()
 
 
     def get(self, _range: Optional[str] = FULL_SHEET_RANGE) -> SheetData:
@@ -79,27 +93,34 @@ class GoogleSheetsClient:
         request = self.sheet.values().get(spreadsheetId=self.spreadsheet_id, range=_range)
         response = request.execute()
         assert response and response['values']
-        return response['values']
+        sheet_data = response['values']
+        
+        if _range == FULL_SHEET_RANGE:
+            self.sheet_data = sheet_data
+            header_to_col_num, header_row_num = self._find_headers(sheet_data=sheet_data, possible_headers=self.possible_headers)
+            self.header_to_col_num = header_to_col_num
+            self.header_row_num = header_row_num
+        
+        return sheet_data
 
 
-    def smart_get(self, headers: List[str], sheet_data: Optional[SheetData] = None) -> SmartSheetData:
+    def smart_get(self, update_sheet_data: bool = True) -> SmartSheetData:
         '''Get sheet data by intelligently finding headers and converting rows to dicts.
         
         Args:
-            headers: list of santized row headers to include in output
-            sheet_data: optional prefetched sheet data, if omitted will refetch
+            update_sheet_data: if True refetches sheet data first.
 
         Return: List of rows as dicts
         '''
-        if not sheet_data:
-            sheet_data = self.get()
-        header_to_col_num, header_row_num = self._find_headers(sheet_data=sheet_data, possible_headers=headers)
-        max_row = len(sheet_data)
+        if update_sheet_data:
+            self.get()
+        
+        max_row = len(self.sheet_data)
         result = []
-        for i in range(header_row_num+1, max_row):
+        for i in range(self.header_row_num+1, max_row):
             row_result = {}
-            for header, col_num in header_to_col_num.items():
-                row_data = sheet_data[i]
+            for header, col_num in self.header_to_col_num.items():
+                row_data = self.sheet_data[i]
                 if col_num >= len(row_data):
                     continue
                 cell_data = row_data[col_num]
@@ -133,24 +154,21 @@ class GoogleSheetsClient:
         request.execute()
 
 
-    def smart_update(self, _values: SmartSheetData, headers: List[str], primary_key: str) -> None:
+    def smart_update(self, _values: SmartSheetData, primary_key: str) -> None:
         '''Update sheet data by intelligently finding rows in existing data using the primary key header.
         
         Args:
             _values: list of row changes to make, including primary_key + all cells to update.
-            headers: list of all headers with updates to be made.
             primary_key: header with primary key to find row to update by.
         '''
-        current_sheet_data = self.get()
-        header_to_col_num, header_row_num = self._find_headers(sheet_data=current_sheet_data, possible_headers=headers)
-        current_sheet_data_smart = self.smart_get(headers=headers, sheet_data=current_sheet_data)
+        current_sheet_data_smart = self.smart_get()
         
         primary_key_to_row_num = {}
         for row_num, current_row in enumerate(current_sheet_data_smart):
             if primary_key in current_row:
-                primary_key_to_row_num[current_row[primary_key]] = row_num + header_row_num + 1  # Plus 1 for header row.
+                primary_key_to_row_num[current_row[primary_key]] = row_num + self.header_row_num + 1  # Plus 1 for header row.
 
-        glog.info(f'built primary_key_to_row_num (header_row_num: {header_row_num}): {json.dumps(primary_key_to_row_num)}')
+        glog.info(f'built primary_key_to_row_num (header_row_num: {self.header_row_num}): {json.dumps(primary_key_to_row_num)}')
         
         update_requests = []
         for i, updated_row in enumerate(_values):
@@ -166,9 +184,9 @@ class GoogleSheetsClient:
                 if header == primary_key:
                     continue
 
-                if header not in header_to_col_num:
-                    raise ValueError(f'Could not find header {header} in sheet, which is requested to be updated by update row {i}: found headers: {header_to_col_num.keys()}')    
-                col_num = header_to_col_num[header]
+                if header not in self.header_to_col_num:
+                    raise ValueError(f'Could not find header {header} in sheet, which is requested to be updated by update row {i}: found headers: {self.header_to_col_num.keys()}')    
+                col_num = self.header_to_col_num[header]
                 
                 update = {
                     'range': self.row_col_num_to_A1(row_num, col_num),
@@ -238,21 +256,16 @@ class GoogleSheetsClient:
             _values: rows to append.
             sort_key: optional key (from row data) to sort sheet after row appends.
         '''
-
-        # Find exisiting headers.
-        existing_sheet_data = self.get()
-        possible_headers = list(_values[0].keys())
-        header_to_col_num, header_row_num = self._find_headers(sheet_data=existing_sheet_data, possible_headers=possible_headers)
         
         # Create cell values to append.
-        min_col_num = header_to_col_num[next(iter(header_to_col_num))]
-        max_col_num = header_to_col_num[next(reversed(header_to_col_num))]
+        min_col_num = self.header_to_col_num[next(iter(self.header_to_col_num))]
+        max_col_num = self.header_to_col_num[next(reversed(self.header_to_col_num))]
         append_width = max_col_num - min_col_num
         append_data = []
         for i, row_to_append in enumerate(_values):
             row_data = [''] * (append_width + 1)
             populated_cells = 0
-            for header, col_num in header_to_col_num.items():
+            for header, col_num in self.header_to_col_num.items():
                 cell_data = row_to_append.get(header, '')
                 row_data[col_num-min_col_num] = cell_data
                 if cell_data:
@@ -260,26 +273,18 @@ class GoogleSheetsClient:
             
             # Verify at least some overlap between found headers and row to append.
             if populated_cells == 0:
+                headers = self.header_to_col_num.keys()
                 raise ValueError(f'Did not find of sheet\'s headers ({headers}) populated in {i} row to append: {json.dumps(row_to_append)}')
             
             append_data.append(row_data)
 
         # Append data.
-        table_tl = f'{chr(ord("A") + min_col_num)}{header_row_num}'
+        table_tl = f'{chr(ord("A") + min_col_num)}{self.header_row_num}'
         self.append(_range=table_tl, _values=append_data)
 
         # Re-sort, if desired.
         if sort_key:
-            if sort_key not in header_to_col_num:
-                raise ValueError(f'Did not find column to sort by ({sort_key}) in headers: {header_to_col_num.keys()}')
-            sort_col_num = header_to_col_num[sort_key]
-            sort_range = GridRange(
-                min_row=header_row_num,
-                max_row=self.MAX_ROWS,
-                min_col=min_col_num,
-                max_col=max_col_num
-            )
-            self.sort(col_num=sort_col_num, grid_range=sort_range, asc=sort_asc)
+           self.smart_sort(sort_key=sort_key, asc=sort_asc)
 
 
     def sort(self, col_num: int, grid_range: GridRange, asc: bool = True) -> None:
@@ -311,6 +316,20 @@ class GoogleSheetsClient:
             body=request_body
         )
         request.execute()
+
+
+    def smart_sort(self, sort_key: str, asc: bool = True) -> None:
+        '''Sort sheet by a given header.''' 
+        if sort_key not in self.header_to_col_num:
+            raise ValueError(f'Did not find column to sort by ({sort_key}) in headers: {self.header_to_col_num.keys()}')
+        sort_col_num = header_to_col_num[sort_key]
+        sort_range = GridRange(
+            min_row=self.header_row_num,
+            max_row=self.MAX_ROWS,
+            min_col=0,
+            max_col=self.MAX_COLS
+        )
+        self.sort(col_num=sort_col_num, grid_range=sort_range, asc=asc)
 
     
     def _find_headers(self, sheet_data: SheetData, possible_headers: List[str]) -> Optional[HeaderData]:

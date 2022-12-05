@@ -33,12 +33,12 @@ def main():
 
     # Setup client
     glog.info(f'Attempting google sheets interaction...')
-    client = GoogleSheetsClient(spreadsheet_id=SPREADSHEET_ID)
+    client = GoogleSheetsClient(spreadsheet_id=SPREADSHEET_ID, possible_headers=HEADERS)
     glog.info(f'..Created client')
     
     # Fetch sheet data
     # sheet_data = client.get()
-    sheet_data = client.smart_get(headers=HEADERS)
+    sheet_data = client.smart_get()
     glog.info(f'Got original sheet data: {json.dumps(sheet_data)}')
 
     # Update sheet data & refetch
@@ -46,8 +46,8 @@ def main():
     # client.append(_range=UPDATE_RANGE, _values=[NEW_ROW, NEW_ROW])
     # client.smart_append(_values=SMART_APPEND_DATA, sort_key='headerA', sort_asc=False)
     # client.sort(1, grid_range=TEST_SORT_GRIDRANGE, asc=False)
-    client.smart_update(_values=SMART_UPDATE_DATA, headers=HEADERS, primary_key='primary_key')
-    sheet_data = client.get()
+    client.smart_update(_values=SMART_UPDATE_DATA, primary_key='primary_key')
+    sheet_data = client.smart_get()
     glog.info(f'Got updated sheet data: {json.dumps(sheet_data)}')
 
 
