@@ -45,6 +45,7 @@ class Config(NamedTuple):
 
     name: str  # This is parsed from filename.
     scraping_params: ScrapingParams
+    sheet_id: str  # Google sheet id
 
     def to_dict(self) -> Dict:
         '''NamedTuple._asdict() only serializes top-level fields.

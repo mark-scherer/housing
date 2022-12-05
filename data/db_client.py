@@ -1,14 +1,11 @@
 '''Client for interacting with the DB.'''
 
-from typing import List
+from typing import List, Dict
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, URL, Connection
 from sqlalchemy.orm import sessionmaker, Session
 import yaml
-
-from housing.data.address import Address
-from housing.data.schema import Listing, Unit
 
 DB_DRIVER_NAME = 'postgresql'
 DB_KEYFILE_PATH = '/etc/keys/postgres.yaml'
@@ -32,6 +29,7 @@ class DbClient:
             except Exception as e:
                 raise RuntimeError(f'Error connecting to postgres') from e
 
+
     def session(self) -> Session:
         return sessionmaker(bind=self.engine)()
 
@@ -39,4 +37,4 @@ class DbClient:
     def query(self, query: str) -> List[Dict]:
         '''Run a query on the DB.'''
         connection = Connection(self.engine)
-        return connection.execute(GET_ALL_LISTINGS_QUERY).all()
+        return connection.execute(query).all()

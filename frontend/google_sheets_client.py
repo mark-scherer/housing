@@ -5,7 +5,7 @@ TODO
 - switch auth from oauth (personal account requiring manual sign in) to SA
 '''
 
-from typing import Optional, List, Any, Dict, NamedTuple
+from typing import Optional, List, Any, Dict, NamedTuple, Tuple
 from os import path
 from pathlib import Path
 import json
@@ -154,34 +154,62 @@ class GoogleSheetsClient:
         request.execute()
 
 
-    def smart_update(self, _values: SmartSheetData, primary_key: str) -> None:
+    def smart_update(
+            self,
+            _values: SmartSheetData,
+            primary_keys: List[str],
+            upsert: bool = True,
+            sort_key: Optional[str] = None,
+            sort_asc: bool = True
+        ) -> None:
         '''Update sheet data by intelligently finding rows in existing data using the primary key header.
         
         Args:
             _values: list of row changes to make, including primary_key + all cells to update.
-            primary_key: header with primary key to find row to update by.
+            primary_keys: headers with primary key to find row to update by.
+            upsert: if true will append rows it does not find in the current sheet data.
+            sort_key, sort_asc: see smart_sort()
         '''
+        def row_to_primary_key_values(row: Dict) -> Tuple:
+            '''Helper to reliably and consistently create row primary key hashs.
+
+            Args:
+                row: complete row data
+            
+            Return: hash of row values in primary key fields.
+            '''
+            return tuple(row[key] for key in primary_keys)
+
+
         current_sheet_data_smart = self.smart_get()
         
-        primary_key_to_row_num = {}
+        # Build lookup map from primary key values to row num.
+        primary_keys_to_row_num = {}
         for row_num, current_row in enumerate(current_sheet_data_smart):
-            if primary_key in current_row:
-                primary_key_to_row_num[current_row[primary_key]] = row_num + self.header_row_num + 1  # Plus 1 for header row.
+            # If row sets any of the primary key rows, add it to the map.
+            if any(key in current_row for key in primary_keys):
+                map_key = row_to_primary_key_values(current_row)
+                primary_keys_to_row_num[map_key] = row_num + self.header_row_num + 1  # Plus 1 for actual header row.
 
-        glog.info(f'built primary_key_to_row_num (header_row_num: {self.header_row_num}): {json.dumps(primary_key_to_row_num)}')
+        # glog.info(f'built primary_keys_to_row_num (header_row_num: {self.header_row_num}): {json.dumps(primary_keys_to_row_num)}')
         
         update_requests = []
+        rows_to_append = []
         for i, updated_row in enumerate(_values):
-            if primary_key not in updated_row:
-                raise ValueError(f'Update row {i} did not specify value for primary_key field {primary_key}: {json.dumps(updated_row)}')
-            primary_key_value = updated_row[primary_key]
+            if not any(key in updated_row for key in primary_keys):
+                raise ValueError(f'Update row {i} did not specify value for any primary_key fields {primary_keys}: {json.dumps(updated_row)}')
+            primary_key_values = row_to_primary_key_values(updated_row)
             
-            if primary_key_value not in primary_key_to_row_num:
-                raise ValueError(f'Could not find primary key value {primary_key_value} for updated row {i} in sheet: primary_key_values: {primary_key_to_row_num.keys()}')
-            row_num = primary_key_to_row_num[primary_key_value]
+            if primary_key_values not in primary_keys_to_row_num:
+                if upsert:
+                    rows_to_append.append(updated_row)
+                    continue
+                else:
+                    raise ValueError(f'Could not find primary key values {primary_key_values} for updated row {i} in sheet: primary_key_values: {primary_keys_to_row_num.keys()}')
+            row_num = primary_keys_to_row_num[primary_key_values]
 
             for header, updated_cell in updated_row.items():
-                if header == primary_key:
+                if header in primary_keys:
                     continue
 
                 if header not in self.header_to_col_num:
@@ -200,6 +228,14 @@ class GoogleSheetsClient:
         }
         request = self.sheet.values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
         request.execute()
+
+        # Append rows that weren't found, if specified.
+        if upsert:
+            self.smart_append(_values=rows_to_append)
+
+        # Resort if desired.
+        if sort_key:
+           self.smart_sort(sort_key=sort_key, asc=sort_asc)
 
 
     def append(self, _range: str, _values: SheetData) -> None:
@@ -231,7 +267,12 @@ class GoogleSheetsClient:
         request.execute()
 
 
-    def smart_append(self, _values: SmartSheetData, sort_key: Optional[str] = None, sort_asc: bool = True) -> None:
+    def smart_append(
+            self,
+            _values: SmartSheetData,
+            sort_key: Optional[str] = None,
+            sort_asc: bool = True
+        ) -> None:
         '''Append rows to sheet, inteligently matching existing table structure and optionally resorting after insert.
         
         - Peeks into column names in provided sheet data, then searches existing sheet
@@ -254,7 +295,7 @@ class GoogleSheetsClient:
 
         Args:
             _values: rows to append.
-            sort_key: optional key (from row data) to sort sheet after row appends.
+            sort_key, smart_asc: see smart_sort()
         '''
         
         # Create cell values to append.
@@ -263,12 +304,12 @@ class GoogleSheetsClient:
         append_width = max_col_num - min_col_num
         append_data = []
         for i, row_to_append in enumerate(_values):
-            row_data = [''] * (append_width + 1)
+            row_data = [''] * min_col_num
             populated_cells = 0
             for header, col_num in self.header_to_col_num.items():
-                cell_data = row_to_append.get(header, '')
-                row_data[col_num-min_col_num] = cell_data
+                cell_data = row_to_append.get(header)
                 if cell_data:
+                    row_data.append(cell_data)
                     populated_cells += 1
             
             # Verify at least some overlap between found headers and row to append.
@@ -279,7 +320,7 @@ class GoogleSheetsClient:
             append_data.append(row_data)
 
         # Append data.
-        table_tl = f'{chr(ord("A") + min_col_num)}{self.header_row_num}'
+        table_tl = f'{chr(ord("A") + min_col_num)}{self.header_row_num + 1}'
         self.append(_range=table_tl, _values=append_data)
 
         # Re-sort, if desired.
@@ -322,7 +363,7 @@ class GoogleSheetsClient:
         '''Sort sheet by a given header.''' 
         if sort_key not in self.header_to_col_num:
             raise ValueError(f'Did not find column to sort by ({sort_key}) in headers: {self.header_to_col_num.keys()}')
-        sort_col_num = header_to_col_num[sort_key]
+        sort_col_num = self.header_to_col_num[sort_key]
         sort_range = GridRange(
             min_row=self.header_row_num,
             max_row=self.MAX_ROWS,
@@ -356,17 +397,34 @@ class GoogleSheetsClient:
         header_to_col_num = OrderedDict()
         header_row_num = None
         for i, existing_row in enumerate(sheet_data):
+            is_header_row = False
             for j, existing_cell in enumerate(existing_row):
-                for possible_header in possible_headers:
-                    if _is_headers_match(possible_header, existing_cell):
-                        if possible_header in header_to_col_num:
-                            raise ValueError(f'Found header {possible_header} twice: cols {header_to_col_num[possible_header]} & {j}')
+                # for possible_header in possible_headers:
+                    # if _is_headers_match(possible_header, existing_cell):
+                    #     if possible_header in header_to_col_num:
+                    #         raise ValueError(f'Found header {possible_header} twice: cols {header_to_col_num[possible_header]} & {j}')
 
-                        header_row_num = i
-                        header_to_col_num[possible_header] = j
+                    #     header_row_num = i
+                    #     header_to_col_num[possible_header] = j
                         
-                        # Since found header match, stop trying to match this cell with other headers.
+                    #     # Since found header match, stop trying to match this cell with other headers.
+                    #     break
+
+                    # Finding just one header match is enough to ID this as the header row.
+                    if any(_is_headers_match(possible_header, existing_cell) for possible_header in possible_headers):
+                        is_header_row = True
                         break
+            
+            if is_header_row:
+                header_row_num = i
+                
+                # Take all headers, even if not found in possible_headers.
+                for j, header in enumerate(existing_row):
+                    header_to_col_num[_sanitize_header(header)] = j
+                
+                # If we just found the header row can stop looking thru rows.
+                break
+                    
 
             if header_row_num:
                 # Since found header row, stop looking through rows.
