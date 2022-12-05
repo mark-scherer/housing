@@ -1,4 +1,11 @@
-'''Scrape specified scraper_configs and store the results in the DB.'''
+'''Scrape specified scraper_configs and store the results in the DB.
+
+TODO
+- respect config.scrapers field
+- add (possibly scraped) bathrooms, pets allowed fields
+- fix apartments.com scraping issues and load test
+- implement zillow scraper
+'''
 
 from os import path
 import json

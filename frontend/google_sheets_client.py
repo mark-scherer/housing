@@ -1,7 +1,6 @@
 '''Google Sheets client - helper for interacting with google sheets.
 
 TODO
-- add sorted column arg to smart_append that resorts sheet by specified column after append
 - switch auth from oauth (personal account requiring manual sign in) to SA
 '''
 

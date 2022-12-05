@@ -1,8 +1,4 @@
-'''Apartments.com scraper
-
-TODO:
-- implement pagination
-'''
+'''Apartments.com scraper'''
 
 from os import path
 from functools import lru_cache
