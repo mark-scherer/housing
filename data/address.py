@@ -3,6 +3,7 @@
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict
 import json
+from os import path
 
 import usaddress
 import glog
@@ -18,6 +19,7 @@ class Address:
         'zipcode'
     ]
     SERIALIZATION_DELIMITER = '-'
+    GOOGLE_MAPS_BASE_URL = 'https://www.google.com/maps/place/'
 
     short_address: str
     city: str
@@ -34,6 +36,11 @@ class Address:
 
     def to_display_string(self) -> str:
         return f'#{self.unit_num} {self.short_address}, {self.zipcode}'
+
+    def to_google_maps_url(self) -> str:
+        encoded_address_elements = [self.short_address, self.city, self.state, self.zipcode]
+        encoded_address = '+'.join(encoded_address_elements)
+        return path.join(self.GOOGLE_MAPS_BASE_URL, encoded_address)
 
     @classmethod
     def from_string(cls, input: str) -> 'Address':

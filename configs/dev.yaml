@@ -6,6 +6,10 @@ config:
   sheet_id: 1Z1Yh__KTKWY6WT1OfIWQS2zB44-cZmLtFfqj-qjYxbQ
 
   scraping_params:
+    
+    scrapers:
+      - apartments.com
+
     zipcodes:
       - 94158
     

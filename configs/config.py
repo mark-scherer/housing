@@ -1,7 +1,7 @@
 '''Class for configs.'''
 
 from os import path
-from typing import NamedTuple, FrozenSet, Dict, Optional
+from typing import NamedTuple, FrozenSet, Dict, Optional, List
 import re
 
 import glog
@@ -29,6 +29,7 @@ class ScrapingParams(NamedTuple):
     max_price: int
 
     # Search metadata
+    scrapers: List[str]  # scrapers to use, not actually respected yet.
     max_results: int = DEFAULT_MAX_RESULTS
 
     @classmethod
