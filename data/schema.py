@@ -10,7 +10,7 @@ from sqlalchemy.orm import registry, relationship
 
 from housing.configs import config
 from housing.data.address import Address
-from housing.data import utils
+from housing.data.db_client import DbClient
 
 mapper_registry = registry()
 
@@ -77,8 +77,8 @@ class Listing:
 
 def main():
     '''If this file is run directly, setup schema in DB.'''
-    engine = utils.create_db_engine()
-    mapper_registry.metadata.create_all(engine)
+    client = DbClient()
+    mapper_registry.metadata.create_all(client.engine)
     glog.info('Created schema!')
 
 

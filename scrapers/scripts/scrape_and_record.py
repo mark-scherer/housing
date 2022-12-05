@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy.orm import sessionmaker, Session
 
 from housing.configs.config import Config
-from housing.data import utils as data_utils
+from housing.data.db_client import DbClient
 from housing.data.schema import Unit
 from housing.scrapers.apartments_dot_com import ApartmentsDotCom
 from housing.scrapers.scraper import Scraper
@@ -65,8 +65,8 @@ def scrape_and_record(config: Config, scraper: Scraper, db_session: Session) -> 
 
 
 def main():
-    db_engine = data_utils.create_db_engine()
-    db_session = sessionmaker(bind=db_engine)()
+    db_client = DbClient()
+    db_session = db_client.session()
     
     glog.info(f'Attempting to scrape {len(CONFIG_PATHS)} scraper_configs across {len(SCRAPERS)} sources...')
     scraped_listings_summary = {}
