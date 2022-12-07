@@ -2,6 +2,9 @@
 
 from functools import lru_cache
 from typing import NamedTuple, List, Dict
+import argparse
+from urllib.parse import urlparse
+from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -11,7 +14,15 @@ import uszipcode
 
 from housing.configs import config
 from housing.data.address import Address
-from housing.data.schema import Listing
+from housing.data.schema import Listing, IpAddress, Request
+from housing.data.db_client import DbClient
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--ip_description', default=None, 
+    help='description of IP address, needed if IP hasn\'t been logged before.')
+parser.add_argument('--prod', default=None, required=True, action=argparse.BooleanOptionalAction,
+    help='Is this running in prod enviorment?')
+FLAGS = parser.parse_args()
 
 
 class SearchResult(NamedTuple):
@@ -25,6 +36,8 @@ class Scraper:
     '''Universal scraping interface.'''
 
     zipcode_client = uszipcode.SearchEngine()
+    db_client = DbClient()
+    my_ip = None
 
     @classmethod
     def scrape_search_results(cls, params: config.ScrapingParams) -> List[SearchResult]:
@@ -39,7 +52,7 @@ class Scraper:
     @classmethod
     def search_and_scrape(cls, params: config.ScrapingParams) -> List[Listing]:
         '''Search given ScrapingParams and then fully scrape listings from each result.'''
-        search_results = cls.scrape_search_results(params=params)[0:1]
+        search_results = cls.scrape_search_results(params=params)
         glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
 
         listings = []
@@ -64,8 +77,42 @@ class Scraper:
         
         if headers is None:
             headers = {}
+
+        # Log request
+        db_session = cls.db_client.session()
+        if cls.my_ip is None:
+            cls.my_ip = IpAddress.my_ip()
+        ip_address_str = cls.my_ip
+        
+        ip_address = db_session.query(IpAddress).filter(IpAddress.ip == ip_address_str).first()
+        if not ip_address:
+            if not FLAGS.ip_description:
+                raise ValueError(f'must provide --ip_description for unknown IP: {ip_address_str}')
+            ip_address = IpAddress(
+                ip=ip_address_str,
+                description=FLAGS.ip_description
+            )
+            db_session.add(ip_address)
+            db_session.flush()  # Need to flush to have id assigned
+        
+        parsed_url = urlparse(url)
+        env = 'prod' if FLAGS.prod == True else 'dev'
+        logged_request = Request(
+            ip=ip_address.id,
+            domain=parsed_url.hostname,
+            endpoint=parsed_url.path,
+            environment=env
+        )
+        logged_request.ip_id = ip_address.id
+        db_session.add(logged_request)
+        db_session.commit()
         
         response = requests.request(method, url, headers=headers)
+
+        logged_request.finished_at = datetime.utcnow()
+        logged_request.status_code = response.status_code
+        db_session.commit()
+
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')

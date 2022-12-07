@@ -5,6 +5,9 @@ TODO
 - add (possibly scraped) bathrooms, pets allowed fields
 - fix apartments.com scraping issues and load test
 - implement zillow scraper
+
+python scrapers/scripts/scrape_and_record.py \
+    --no-prod
 '''
 
 from os import path
