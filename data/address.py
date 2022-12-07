@@ -31,8 +31,9 @@ class Address:
         return asdict(self)
     
     def to_string(self) -> str:
-        element_values = [self[field] for field in self.SERIALIZATION_ELEMENT_FIELDS]
-        return self.SERIALIZATION_DELIMITER.join(element_values.lower())
+        element_values = [getattr(self, field) for field in self.SERIALIZATION_ELEMENT_FIELDS]
+        element_values = [value for value in element_values if value is not None]
+        return self.SERIALIZATION_DELIMITER.join(element_values).lower()
 
     def to_display_string(self) -> str:
         return f'#{self.unit_num} {self.short_address}, {self.zipcode}'

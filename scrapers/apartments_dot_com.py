@@ -9,6 +9,7 @@ import traceback
 
 from bs4 import BeautifulSoup, Tag
 import glog
+import usaddress
 
 from housing.configs import config
 from housing.data.address import Address
@@ -81,7 +82,8 @@ class ApartmentsDotCom(scraper.Scraper):
     UNIT_TYPE_LISTINGS_CLASS = 'unitContainer'
 
     # Listing scraping params: single-listing search result.
-    LISTING_ADDRESS_CLASSES = ['propertyNameRow', 'propertyAddressRow']
+    LISTING_ADDRESS_HEADING_CLASS = 'propertyNameRow'
+    LISTING_ADDRESS_SUBHEADING_CLASS = 'propertyAddressRow'
     LISTING_NEIGHBORHOOD_CLASS = 'neighborhoodAddress'
     LISTING_DETAILS_CELL_CLASS = 'priceBedRangeInfoInnerContainer'
     LISTING_DETAILS_CELL_LABEL_PRICE = 'Monthly Rent'
@@ -409,7 +411,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
         except Exception as e:
             exception_type = type(e)
-            raise exception_type(f'Error parsing listings from unit type {unit_type_id}: {e}')
+            raise exception_type(f'Error parsing listings from unit type {unit_type_id}: {e}') from e
 
         return listings
 
@@ -430,16 +432,26 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup) -> Listing:
+    def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup, url: str) -> Listing:
         '''Parse Listing from single-listing search result page.'''
         
         # Parse address.
-        address_lines = [element.text for element in page_soup.find_all(class_=cls.LISTING_ADDRESS_CLASSES)]
+        address_heading = page_soup.find(class_=cls.LISTING_ADDRESS_HEADING_CLASS).text
+        address_subheading = page_soup.find(class_=cls.LISTING_ADDRESS_SUBHEADING_CLASS).text
         neighborhood_element = page_soup.find(class_=cls.LISTING_NEIGHBORHOOD_CLASS)
         neighborhood_str = neighborhood_element.text if neighborhood_element else ''
-        address_str = ' '.join(address_lines).replace(neighborhood_str, '')  # Join address lines and remove neighboorhood string.
-        address_str = cls._sanitize_string(address_str)
-        address = Address.from_full_address(address_str)
+
+        address = None
+        try:
+            # First try heading + subheading - neighboorhood
+            address_str = ' '.join([address_heading, address_subheading]).replace(neighborhood_str, '')
+            address_str = cls._sanitize_string(address_str)
+            address = Address.from_full_address(address_str)
+        except usaddress.RepeatedLabelError as e:
+            # If that didn't work try just the subheading - neighborhood
+            address_str = address_subheading.replace(neighborhood_str, '')
+            address_str = cls._sanitize_string(address_str)
+            address = Address.from_full_address(address_str)
         
         listing_detail_elements = page_soup.find_all(class_=cls.LISTING_DETAILS_CELL_CLASS)
 
@@ -463,6 +475,7 @@ class ApartmentsDotCom(scraper.Scraper):
         return Listing(
             unit=unit,
             price=price,
+            url=url,
             source=cls.SOURCE
         )
 
@@ -484,13 +497,12 @@ class ApartmentsDotCom(scraper.Scraper):
 
             # Parse simple, single-listing search results.
             else:
-                listings += [cls._parse_single_listing_search_result(page_soup=soup)]
+                listings += [cls._parse_single_listing_search_result(page_soup=soup, url=search_result.url)]
 
             # Filter to only valid listings.
             listings = [l for l in listings if cls.is_valid_listing(listing=l, params=scraping_params)]
 
         except Exception as e:
-            exception_type = type(e)
-            raise exception_type(f'Error fully scraping searh result {search_result.id} ({search_result.url}): {e}') from e
+            raise RuntimeError(f'Error fully scraping searh result {search_result.id} ({search_result.url}): {e}') from e
         
         return listings

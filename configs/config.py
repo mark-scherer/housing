@@ -29,7 +29,7 @@ class ScrapingParams(NamedTuple):
     max_price: int
 
     # Search metadata
-    scrapers: List[str]  # scrapers to use, not actually respected yet.
+    scrapers: FrozenSet[str]  # scrapers to use, not actually respected yet.
     max_results: int = DEFAULT_MAX_RESULTS
 
     @classmethod
@@ -37,7 +37,11 @@ class ScrapingParams(NamedTuple):
         '''Create new ScrapingParams object from Dict.
         Corrects typing.
         '''
-        data['zipcodes'] = frozenset([str(zipcode) for zipcode in data['zipcodes']])
+        def frozenset_from_list(input: List) -> FrozenSet:
+            return frozenset([element for element in input])
+
+        data['zipcodes'] = frozenset_from_list([str(zipcode) for zipcode in data['zipcodes']])
+        data['scrapers'] = frozenset_from_list(data['scrapers'])
         return ScrapingParams(**data)
 
 
