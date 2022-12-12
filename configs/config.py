@@ -7,6 +7,7 @@ import re
 import glog
 import yaml
 
+# DEBUG: limiting returned results for now
 DEFAULT_MAX_RESULTS = 10
 
 # Custom type to handle Studios.

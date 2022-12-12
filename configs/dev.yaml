@@ -12,6 +12,7 @@ config:
 
     zipcodes:
       - 94158
+      - 94107
     
     min_bedrooms: 1
     max_bedrooms: 2

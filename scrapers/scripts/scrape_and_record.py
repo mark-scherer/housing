@@ -1,13 +1,19 @@
 '''Scrape specified scraper_configs and store the results in the DB.
 
 TODO
+- load test apartments.com scraper
 - respect config.scrapers field
-- add (possibly scraped) bathrooms, pets allowed fields
-- fix apartments.com scraping issues and load test
+- expand apartments.com to all areas of interest and fix any new bugs
 - implement zillow scraper
 
 python scrapers/scripts/scrape_and_record.py \
     --no-prod
+
+To see count of recent requests:
+    select domain, count(*)
+    from housing_requests
+    where created_at > now () - interval '1 day'
+    group by domain order by count(*) desc;
 '''
 
 from os import path

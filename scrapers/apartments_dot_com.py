@@ -71,6 +71,7 @@ class ApartmentsDotCom(scraper.Scraper):
     SEARCH_RESULT_BEDROOMS_CLASSES = ['property-beds', 'bed-range']
     PAGE_COUNT_CLASS = 'pageRange'
     DEFAULT_NUM_PAGES = 1
+    UNPARSEABLE_PRICE_STRS = ['callforrent']
 
     # Listing scraping params: multi-listing search results.
     ALL_UNITS_TAB_ATTRIBUTE_NAME = 'data-tab-content-id'
@@ -82,18 +83,23 @@ class ApartmentsDotCom(scraper.Scraper):
     UNIT_TYPE_LISTINGS_CLASS = 'unitContainer'
 
     # Listing scraping params: single-listing search result.
+    LISTING_FULL_CONTENT_CLASS = 'profileContent'
     LISTING_ADDRESS_HEADING_CLASS = 'propertyNameRow'
     LISTING_ADDRESS_SUBHEADING_CLASS = 'propertyAddressRow'
     LISTING_NEIGHBORHOOD_CLASS = 'neighborhoodAddress'
     LISTING_DETAILS_CELL_CLASS = 'priceBedRangeInfoInnerContainer'
     LISTING_DETAILS_CELL_LABEL_PRICE = 'Monthly Rent'
     LISTING_DETAILS_CELL_LABEL_BEDROOMS = 'Bedrooms'
+    LISTING_DETAILS_CELL_LABEL_BATHROOMS = 'Bathrooms'
+    LISTING_DETAILS_CELL_LABEL_SQFT = 'Square Feet'
 
 
     # Generic listing scraping params.
     LISTING_UNIT_NUM_CLASS = 'unitColumn'
     LISTING_PRICE_CLASS = 'pricingColumn'
-
+    LISTING_SQFT_CLASS = 'sqftColumn'
+    LISTING_YES_PETS_PHRASES = ['pet friendly']
+    LISTING_NO_PETS_PHRASES = ['no pets']
 
 
     @classmethod
@@ -189,6 +195,48 @@ class ApartmentsDotCom(scraper.Scraper):
         
         return int(bedrooms_str)
 
+    
+    @classmethod
+    def _parse_bathrooms(cls, bathrooms_str: str) -> float:
+        """Helper for parsing number of bathrooms from apartments.com formatted string."""
+        assert '-' not in bathrooms_str, 'Found "-", must split string before passing to _parse_bathrooms()'
+        
+        bathrooms_str = re.sub('ba(th)?(s)?', '', bathrooms_str)
+
+        return float(bathrooms_str)
+
+
+    @classmethod
+    def _parse_sqft(cls, sqft_string: str) -> Optional[int]:
+        """Helper for parsing square footage from apartments.com formatted string."""
+        assert '-' not in sqft_string, 'Found "-", must split string before passing to _parse_sqft()'
+
+        sqft_string = sqft_string.replace('square feet', '')  # Sometimes included in html for screenreaders only
+        sqft_string = re.sub('sq ft', '', sqft_string)
+        sqft_string = sqft_string.replace(',', '')
+
+        result = None
+        if sqft_str:
+            result = int(sqft_str)
+        
+        return result
+
+    
+    @classmethod
+    def _parse_pets_allowed(cls, input_text) -> Optional[bool]:
+        """Helper for attempting to parse pet policy from apartments.com listing text.
+        
+        Return: true/false if policy found, None otherwise
+        """
+        input_text = input_text.lower()
+        result = None
+        if any(phrase in input_text for phrase in cls.LISTING_YES_PETS_PHRASES):
+            result = True
+        elif any(phrase in input_text for phrase in cls.LISTING_NO_PETS_PHRASES):
+            result = False
+        
+        return result
+
 
     @classmethod
     def _parse_price(cls, price_str: str) -> int:
@@ -201,6 +249,10 @@ class ApartmentsDotCom(scraper.Scraper):
         price_str = price_str.replace(',', '')
         price_str = price_str.replace(' ', '')
         price_str = price_str.replace('/mo', '')
+        price_str = price_str.lower()
+
+        assert price_str not in cls.UNPARSEABLE_PRICE_STRS, f'unparseable price string: {price_str}'
+
         return int(price_str)
 
 
@@ -215,7 +267,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_search_result_element(cls, result_element: Tag) -> ApartmentsDotComSearchResult:
+    def _parse_search_result_element(cls, result_element: Tag, search_url: str) -> ApartmentsDotComSearchResult:
         '''Parse search result html.'''
         id = result_element[cls.SEARCH_RESULT_ID_ATTRIBUTE]
         url = result_element[cls.SEARCH_RESULT_URL_ATTRIBUTE]
@@ -294,67 +346,70 @@ class ApartmentsDotCom(scraper.Scraper):
     @classmethod
     def scrape_search_results(cls, params: config.ScrapingParams) -> List[ApartmentsDotComSearchResult]:
         '''Scrape search results from the search page.'''
-        assert len(params.zipcodes) == 1, 'Do not yet support multiple zipcodes.'
-        zipcode, = params.zipcodes
 
-        current_page = 0  # Uses 1-based page numbers.
-        num_pages = None  # Will be set in loop.
-        continue_loop = True
-        search_results = []
-        while continue_loop:
-            current_page += 1
-            search_url = cls._get_search_url(params=params, zipcode=zipcode, page=current_page)
-            soup = cls.get_url(search_url)
-
-            # Parse LD-JSON data blocks.
-            # Note: this provides no info over scraping the html so skipping.
-            # data_blocks = [json.loads(db.string) for db in soup.find_all('script', type=cls.DATA_BLOCK_TYPE)]
-            # data_block_search_results = cls._parse_apartment_complex_data_block(data_blocks[0]['about'])
-            # _ = data_blocks[1]  # Info about virtual tours, not useful.
-
-            # Parse info available in html.
-            is_search_result_element = lambda tag: tag.name == cls.SEARCH_RESULT_ELEMENT_TYPE and tag.has_attr(cls.SEARCH_RESULT_ID_ATTRIBUTE)
-            search_result_elements = soup.find_all(is_search_result_element)
-            new_results = []
-            for i, result_element in enumerate(search_result_elements):
-                try:
-                    parsed_result = cls._parse_search_result_element(result_element)
-                    new_results.append(parsed_result)
-                except Exception as e:
-                    glog.warning(f'error parsing search result element (page: {current_page}, element: {i}), skipping: {traceback.format_exc()}')
-                
-            if num_pages is None:
-                num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
-            
-            # Parse number of search result pages if haven't already.
-            search_results += new_results
-            glog.info(f'Parsed {len(new_results)} new results from page {current_page} / {num_pages}, now {len(search_results)} total..')
-            
-            # Determine if search pagination loop should continue.
+        # Search zipcodes one at a time
+        results = []
+        for zipcode in params.zipcodes:
+            glog.info(f'Finding search results for zipcode: {zipcode}')
+            current_page = 0  # Uses 1-based page numbers.
+            num_pages = None  # Will be set in loop.
             continue_loop = True
-            if len(new_results) == 0:
-                continue_loop = False
-                glog.warning(f'found 0 new results, ending search.')
-            elif len(search_results) > params.max_results:
-                continue_loop = False
-                glog.warning(f'found {len(search_results)} search results, more than max_results: {params.max_results}... ending search.')
-            elif num_pages is not None and current_page >= num_pages:
-                continue_loop = False
-                glog.info(f'parsed all {current_page} / {num_pages} pages, ending search.')
+            search_results = []
+            while continue_loop:
+                current_page += 1
+                search_url = cls._get_search_url(params=params, zipcode=zipcode, page=current_page)
+                soup = cls.get_url(search_url)
 
-        # Filter out non-matches included in results.
-        filtered_searched_results = [
-            result for result in search_results
-            if result.min_price <= params.max_price and result.max_price >= params.min_price and \
-                result.min_bedrooms <= params.max_bedrooms and result.max_bedrooms >= params.min_bedrooms and \
-                result.address.zipcode == zipcode
-        ]
+                # Parse LD-JSON data blocks.
+                # Note: this provides no info over scraping the html so skipping.
+                # data_blocks = [json.loads(db.string) for db in soup.find_all('script', type=cls.DATA_BLOCK_TYPE)]
+                # data_block_search_results = cls._parse_apartment_complex_data_block(data_blocks[0]['about'])
+                # _ = data_blocks[1]  # Info about virtual tours, not useful.
 
-        return filtered_searched_results
+                # Parse info available in html.
+                is_search_result_element = lambda tag: tag.name == cls.SEARCH_RESULT_ELEMENT_TYPE and tag.has_attr(cls.SEARCH_RESULT_ID_ATTRIBUTE)
+                search_result_elements = soup.find_all(is_search_result_element)
+                new_results = []
+                for i, result_element in enumerate(search_result_elements):
+                    try:
+                        parsed_result = cls._parse_search_result_element(result_element, search_url=search_url)
+                        new_results.append(parsed_result)
+                    except Exception as e:
+                        glog.warning(f'error parsing search result element ({search_url}, page: {current_page}, element: {i}), skipping result: {traceback.format_exc()}')
+                    
+                if num_pages is None:
+                    num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
+                
+                # Parse number of search result pages if haven't already.
+                search_results += new_results
+                glog.info(f'Parsed {len(new_results)} new results from page {current_page} / {num_pages}, now {len(search_results)} total..')
+                
+                # Determine if search pagination loop should continue.
+                continue_loop = True
+                if len(new_results) == 0:
+                    continue_loop = False
+                    glog.warning(f'found 0 new results, ending search.')
+                elif len(search_results) > params.max_results:
+                    continue_loop = False
+                    glog.warning(f'found {len(search_results)} search results, more than max_results: {params.max_results}... ending search.')
+                elif num_pages is not None and current_page >= num_pages:
+                    continue_loop = False
+                    glog.info(f'parsed all {current_page} / {num_pages} pages, ending search.')
+
+            # Filter out non-matches included in results.
+            filtered_searched_results = [
+                result for result in search_results
+                if result.min_price <= params.max_price and result.max_price >= params.min_price and \
+                    result.min_bedrooms <= params.max_bedrooms and result.max_bedrooms >= params.min_bedrooms and \
+                    result.address.zipcode == zipcode
+            ]
+            results += filtered_searched_results
+
+        return results
 
 
     @classmethod
-    def _parse_unit_type_html(cls, unit_type_html: Tag, building_address: Address, url: str) -> List[Listing]:
+    def _parse_unit_type_html(cls, unit_type_html: Tag, full_page_html: Tag, building_address: Address, url: str) -> List[Listing]:
         """Parse listings grid for given unit type.
         
         'Unit Type' is single result box with fixed floor plan.
@@ -376,18 +431,32 @@ class ApartmentsDotCom(scraper.Scraper):
 
             # Parse unit type metadata.
             unit_type_metadata_str = unit_type_metadata_element.find(class_=cls.UNIT_TYPE_METADATA_CLASS).text
-            
-            # Ignore bathrooms, sq footage data for now.
             bedrooms_str, bathrooms_str, *sq_footage_strs = unit_type_metadata_str.split(',')
-            bedrooms = cls._parse_bedrooms(bedrooms_str)
+            bedrooms = cls._parse_bedrooms(cls._sanitize_string(bedrooms_str))
+            bathrooms = cls._parse_bathrooms(cls._sanitize_string(bathrooms_str))
+            
+            # Parse building-wide metadata.
+            pets_allowed = None
+            try:
+                pets_allowed = cls._parse_pets_allowed(full_page_html.text)
+            except Exception as e:
+                glog.error(f'error parsing pets allowed, skipping parsing: {url}, unit_type_id: {unit_type_id}:\n{traceback.format_exc()}')
 
             # Parse listings.
             listing_elements = unit_type_html.find_all(class_=cls.UNIT_TYPE_LISTINGS_CLASS)
-            for element in listing_elements:
+            for i, element in enumerate(listing_elements):
                 unit_num_str = element.find(class_=cls.LISTING_UNIT_NUM_CLASS).text
                 unit_num = cls._parse_unit_num(unit_num_str)
                 price_str = element.find(class_=cls.LISTING_PRICE_CLASS).text
                 price = cls._parse_price(price_str)
+
+                sqft = None
+                try:
+                    sqft_str = element.find(class_=cls.LISTING_SQFT_CLASS).text
+                    sqft_str = cls._sanitize_string(sqft_str)
+                    sqft = cls._parse_sqft(sqft_str)
+                except Exception as e:
+                    glog.error(f'error parsing sqft, skipping parsing: {url}, unit_type_id: {unit_type_id}, listing element: {i}:\n{traceback.format_exc()}')
 
                 address = Address(
                     short_address=building_address.short_address,
@@ -396,10 +465,17 @@ class ApartmentsDotCom(scraper.Scraper):
                     zipcode=building_address.zipcode,
                     unit_num=unit_num
                 )
+                other_unit_info = {
+                    'sqft': sqft,
+                    'pets_allowed': pets_allowed,
+                }
                 unit = Unit(
                     address=address,
                     address_str=address.to_string(),
+                    zipcode=address.zipcode,
                     bedrooms=bedrooms,
+                    bathrooms=bathrooms,
+                    other_info=other_unit_info
                 )
                 listing = Listing(
                     unit=unit,
@@ -425,7 +501,12 @@ class ApartmentsDotCom(scraper.Scraper):
 
         listings = []
         for unit_type in unit_type_elements:
-            unit_type_listings = cls._parse_unit_type_html(unit_type_html=unit_type, building_address=building_address, url=url)
+            unit_type_listings = cls._parse_unit_type_html(
+                unit_type_html=unit_type,
+                full_page_html=page_soup,
+                building_address=building_address,
+                url=url
+            )
             listings += unit_type_listings
 
         return listings
@@ -434,6 +515,7 @@ class ApartmentsDotCom(scraper.Scraper):
     @classmethod
     def _parse_single_listing_search_result(cls, page_soup: BeautifulSoup, url: str) -> Listing:
         '''Parse Listing from single-listing search result page.'''
+        listing_content = page_soup.find(class_=cls.LISTING_FULL_CONTENT_CLASS)
         
         # Parse address.
         address_heading = page_soup.find(class_=cls.LISTING_ADDRESS_HEADING_CLASS).text
@@ -467,10 +549,40 @@ class ApartmentsDotCom(scraper.Scraper):
         price_str = cls._sanitize_string(price_str)
         price = cls._parse_price(price_str)
 
+        # Parse bathrooms.
+        bathrooms_detail_cell_element = next(filter(lambda element: cls.LISTING_DETAILS_CELL_LABEL_BATHROOMS in element.text, listing_detail_elements))
+        bathrooms_str = bathrooms_detail_cell_element.text.replace(cls.LISTING_DETAILS_CELL_LABEL_BATHROOMS, '')
+        bathrooms_str = cls._sanitize_string(bathrooms_str)
+        bathrooms = cls._parse_bathrooms(bathrooms_str)
+
+        # Parse square footage.
+        sqft = None
+        try:
+            sqft_detail_cell_element = next(filter(lambda element: cls.LISTING_DETAILS_CELL_LABEL_SQFT in element.text, listing_detail_elements))
+            sqft_str = sqft_detail_cell_element.text.replace(cls.LISTING_DETAILS_CELL_LABEL_SQFT, '')
+            sqft_str = cls._sanitize_string(sqft_str)
+            sqft = cls._parse_sqft(sqft_str)
+        except Exception as e:
+            glog.error(f'error parsing square footage, skipping parsing: {url}:\n{traceback.format_exc()}')
+
+        # Parse other metadata
+        pets_allowed = None
+        try:
+            pets_allowed = cls._parse_pets_allowed(listing_content.text)
+        except Exception as e:
+            glog.error(f'error parsing pets allowed, skipping parsing: {url}:\n{traceback.format_exc()}')
+
+        other_unit_info = {
+            'sqft': sqft,
+            'pets_allowed': pets_allowed,
+        }
         unit = Unit(
             address=address,
             address_str=address.to_string(),
-            bedrooms=bedrooms
+            zipcode=address.zipcode,
+            bedrooms=bedrooms,
+            bathrooms=bathrooms,
+            other_info=other_unit_info,
         )
         return Listing(
             unit=unit,

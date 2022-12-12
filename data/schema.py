@@ -5,7 +5,7 @@ from typing import Optional, Dict
 
 import requests
 import glog
-from sqlalchemy import Column, engine_from_config, ForeignKey, JSON, Integer, String, Table, DateTime, Boolean
+from sqlalchemy import Column, engine_from_config, ForeignKey, JSON, Integer, String, Table, DateTime, Boolean, Float
 from sqlalchemy.sql import func, expression
 from sqlalchemy.orm import registry, relationship
 
@@ -33,14 +33,18 @@ class Unit:
         Column('id', Integer, primary_key=True, autoincrement=True),
         Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
         Column('address_str', String(100), nullable=False, unique=True, index=True),
+        Column('zipcode',  String(10), nullable=False),  
         Column('bedrooms', Integer, nullable=False),
+        Column('bathrooms', Float),
         Column('other_info', JSON),
     )
 
     id: int = field(init=False)
     address_str: str  # For storing in the DB.
     address: Address  # For working with in python
+    zipcode: str      # For specific queries across zipcode.
     bedrooms: config.BedroomCount
+    bathrooms: float
     other_info: Optional[Dict] = None
     
     def to_dict(self) -> Dict:
