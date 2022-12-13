@@ -20,7 +20,7 @@ To see count of recent requests:
 
 from os import path
 import json
-from typing import NamedTuple
+from typing import NamedTuple, Dict, List
 
 import glog
 import pandas as pd
@@ -42,14 +42,25 @@ SCRAPERS = [
 ]
 
 
-class ScrapeResult(NamedTuple):
-    '''For storing metadata about scrape result.'''
+class SingleScrapeResult(NamedTuple):
+    '''For storing metadata about a single scrape result.'''
     units: int
     listings: int
 
 
-def scrape_and_record(config: Config, scraper: Scraper, db_session: Session) -> ScrapeResult:
-    '''Scrape and record results in the DB.
+class FullScrapeResult(NamedTuple):
+    '''Metadata about an entire scraping run'''
+    # Counts of listings scraped by config then scraper
+    listing_counts: Dict[str, Dict[str, int]]
+
+    def to_table(self) -> str:
+        '''Formats as a table ready for printing.'''
+        listings_summary_df = pd.DataFrame.from_dict(self.listing_counts)
+        return listings_summary_df
+
+
+def scrape_and_record_one(config: Config, scraper: Scraper, db_session: Session) -> SingleScrapeResult:
+    '''Scrape and record results in the DB for a given config/scraper combo.
     
     Return: metadata about successfully recorded results.
     '''
@@ -78,35 +89,39 @@ def scrape_and_record(config: Config, scraper: Scraper, db_session: Session) -> 
             raise RuntimeError(f'error recording scraped listing {i}/{len(scraped_listings)}: {json.dumps(listing.to_dict())}: {e}') from e
     
     db_session.commit()
-    return ScrapeResult(units=new_units, listings=len(scraped_listings))
+    return SingleScrapeResult(units=new_units, listings=len(scraped_listings))
 
+
+def scrape_and_record_all(configs: List[Config], scrapers: List[Scraper], db_session: Session) -> FullScrapeResult:
+    glog.info(f'Attempting to scrape {len(configs)} scraper_configs across {len(scrapers)} sources...')
+    listing_counts = {}
+    for i, config in enumerate(configs):
+        listing_counts[config.name] = {}
+        
+        for j, scraper in enumerate(scrapers):
+            scrape_metadata = {"config": config.name, "scraper": scraper.__name__}
+            scrape_progress = f'config {i}/{len(configs)}, scraper {j}/{len(scrapers)}'
+            glog.info(f'Attempting scrape {scrape_progress}: {json.dumps(scrape_metadata)}')
+            
+            try:
+                scrape_result = scrape_and_record_one(config=config, scraper=scraper, db_session=db_session)
+                
+                listing_counts[config.name][scraper.__name__] = scrape_result.listings
+                glog.info(f'..finished scrape {scrape_progress}: {json.dumps(scrape_metadata)}: {json.dumps(scrape_result._asdict())}')
+            except Exception as e:
+                raise RuntimeError(f'Error with scrape {scrape_progress}: {json.dumps(scrape_metadata)}: {e}') from e
+    
+    return FullScrapeResult(listing_counts=listing_counts)
 
 
 def main():
     db_client = DbClient()
     db_session = db_client.session()
     
-    glog.info(f'Attempting to scrape {len(CONFIG_PATHS)} scraper_configs across {len(SCRAPERS)} sources...')
-    scraped_listings_summary = {}
-    for i, config_path in enumerate(CONFIG_PATHS):
-        config = Config.load_from_file(config_path)
-        scraped_listings_summary[config.name] = {}
-        
-        for j, scraper in enumerate(SCRAPERS):
-            scrape_metadata = {"config_path": config_path, "scraper": scraper.__name__}
-            scrape_progress = f'config {i}/{len(CONFIG_PATHS)}, scraper {j}/{len(SCRAPERS)}'
-            glog.info(f'Attempting scrape {scrape_progress}: {json.dumps(scrape_metadata)}')
-            
-            try:
-                scrape_result = scrape_and_record(config=config, scraper=scraper, db_session=db_session)
-                
-                scraped_listings_summary[config.name][scraper.__name__] = scrape_result.listings
-                glog.info(f'..finished scrape {scrape_progress}: {json.dumps(scrape_metadata)}: {json.dumps(scrape_result._asdict())}')
-            except Exception as e:
-                raise RuntimeError(f'Error with scrape {scrape_progress}: {json.dumps(scrape_metadata)}: {e}') from e
-    
-    summary_df = pd.DataFrame.from_dict(scraped_listings_summary)
-    glog.info(f'..finished scraping {len(CONFIG_PATHS)} scraper_configs across {len(SCRAPERS)} sources - scraped listings:\n{summary_df}')
+    configs = [Config.load_from_file(config_path) for config_path in CONFIG_PATHS]
+
+    full_scrape_results = scrape_and_record_all(configs=configs, scrapers=SCRAPERS, db_session=db_session)
+    glog.info(f'..finished scraping {len(CONFIG_PATHS)} scraper_configs across {len(SCRAPERS)} sources - scraped listings:\n{full_scrape_results.to_table()}')
 
 
 if __name__ == '__main__':

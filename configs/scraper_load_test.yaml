@@ -1,0 +1,30 @@
+# Config for load testing a scraper. Includes a representivate zipcode set
+
+config:
+
+  sheet_id: ''
+
+  scraping_params:
+    
+    scrapers:
+      - apartments.com
+
+    zipcodes:
+
+      # SF zipcodes
+      - 94158  # Mission Bay
+      - 94107  # Dogpatch, Soma
+
+      # Seattle zipcodes
+      - 98103  # Fremont, Green Lake
+      - 98107  # Ballard
+
+      # SD zipcodes
+      - 92107  # OB
+      - 92109  # PB, Mission Beach
+    
+    min_bedrooms: 1
+    max_bedrooms: 2
+
+    min_price: 0
+    max_price: 4500

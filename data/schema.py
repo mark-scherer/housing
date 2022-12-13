@@ -22,7 +22,7 @@ IP_SERVICE_URL = 'https://api.ipify.org'
 
 IP_SERVICE_RETRYABLE_STATUS_CODES = [502]
 def _ip_service_retryable_error(exception: Exception) -> bool:
-    return isinstance(exception, requests.HttpError) and \
+    return isinstance(exception, requests.HTTPError) and \
         exception.response.status_code in IP_SERVICE_RETRYABLE_STATUS_CODES
 
 IP_SERVICE_RETRY = retry(
