@@ -8,7 +8,7 @@ import glog
 import yaml
 
 # DEBUG: limiting returned results for now
-DEFAULT_MAX_RESULTS = 10
+DEFAULT_MAX_RESULTS = 2
 
 # Custom type to handle Studios.
 # Studios represented as 0 Bedrooms

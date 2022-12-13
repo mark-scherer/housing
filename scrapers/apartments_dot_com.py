@@ -2,7 +2,7 @@
 
 from os import path
 from functools import lru_cache
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import json
 import re
 import traceback
@@ -13,7 +13,7 @@ import usaddress
 
 from housing.configs import config
 from housing.data.address import Address
-from housing.data.schema import Unit, Listing
+from housing.data.schema import Unit, Listing, Request
 from housing.scrapers import scraper, schema_dot_org
 
 BASE_URL = 'https://www.apartments.com/'
@@ -100,6 +100,13 @@ class ApartmentsDotCom(scraper.Scraper):
     LISTING_SQFT_CLASS = 'sqftColumn'
     LISTING_YES_PETS_PHRASES = ['pet friendly']
     LISTING_NO_PETS_PHRASES = ['no pets']
+    LISTING_YES_PARKING_PHRASES = [
+        'parking included',
+        'assigned parking',
+        'unassigned parking',
+        'parking available'
+    ]
+    LISTING_NO_PARKING_PHRASES = []
 
 
     @classmethod
@@ -141,7 +148,7 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def get_url(cls, url: str, method: str = 'GET') -> BeautifulSoup:
+    def get_url(cls, url: str, method: str = 'GET') -> Tuple[BeautifulSoup, Request]:
         '''Customize request to get past server scraping filters.'''
         headers = {'user-agent': cls.USER_AGENT}
         return super().get_url(url, method, headers=headers)
@@ -207,13 +214,13 @@ class ApartmentsDotCom(scraper.Scraper):
 
 
     @classmethod
-    def _parse_sqft(cls, sqft_string: str) -> Optional[int]:
+    def _parse_sqft(cls, sqft_str: str) -> Optional[int]:
         """Helper for parsing square footage from apartments.com formatted string."""
-        assert '-' not in sqft_string, 'Found "-", must split string before passing to _parse_sqft()'
+        assert '-' not in sqft_str, 'Found "-", must split string before passing to _parse_sqft()'
 
-        sqft_string = sqft_string.replace('square feet', '')  # Sometimes included in html for screenreaders only
-        sqft_string = re.sub('sq ft', '', sqft_string)
-        sqft_string = sqft_string.replace(',', '')
+        sqft_str = sqft_str.replace('square feet', '')  # Sometimes included in html for screenreaders only
+        sqft_str = re.sub('sq ft', '', sqft_str)
+        sqft_str = sqft_str.replace(',', '')
 
         result = None
         if sqft_str:
@@ -233,6 +240,22 @@ class ApartmentsDotCom(scraper.Scraper):
         if any(phrase in input_text for phrase in cls.LISTING_YES_PETS_PHRASES):
             result = True
         elif any(phrase in input_text for phrase in cls.LISTING_NO_PETS_PHRASES):
+            result = False
+        
+        return result
+
+
+    @classmethod
+    def _parse_parking_available(cls, input_text) -> Optional[bool]:
+        """Helper for attempting to parse parking availability from apartments.com listing text.
+        
+        Return: true/false if parking availability found, None otherwise
+        """
+        input_text = input_text.lower()
+        result = None
+        if any(phrase in input_text for phrase in cls.LISTING_YES_PARKING_PHRASES):
+            result = True
+        elif any(phrase in input_text for phrase in cls.LISTING_NO_PARKING_PHRASES):
             result = False
         
         return result
@@ -358,7 +381,7 @@ class ApartmentsDotCom(scraper.Scraper):
             while continue_loop:
                 current_page += 1
                 search_url = cls._get_search_url(params=params, zipcode=zipcode, page=current_page)
-                soup = cls.get_url(search_url)
+                soup, logged_request = cls.get_url(search_url)
 
                 # Parse LD-JSON data blocks.
                 # Note: this provides no info over scraping the html so skipping.
@@ -380,7 +403,10 @@ class ApartmentsDotCom(scraper.Scraper):
                 if num_pages is None:
                     num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
                 
-                # Parse number of search result pages if haven't already.
+                # Store new results and add to logged_request response_info
+                logged_request.response_info[cls.SEARCH_REQUEST_PAGE_NUM_KEY] = current_page
+                logged_request.response_info[cls.SEARCH_REQUEST_NUM_RESULTS_KEY] = len(new_results)
+                cls._db_session.commit()
                 search_results += new_results
                 glog.info(f'Parsed {len(new_results)} new results from page {current_page} / {num_pages}, now {len(search_results)} total..')
                 
@@ -442,6 +468,12 @@ class ApartmentsDotCom(scraper.Scraper):
             except Exception as e:
                 glog.error(f'error parsing pets allowed, skipping parsing: {url}, unit_type_id: {unit_type_id}:\n{traceback.format_exc()}')
 
+            parking_available = None
+            try:
+                parking_available = cls._parse_parking_available(full_page_html.text)
+            except Exception as e:
+                glog.error(f'error parsing parking availability, skipping parsing: {url}, unit_type_id: {unit_type_id}:\n{traceback.format_exc()}')
+
             # Parse listings.
             listing_elements = unit_type_html.find_all(class_=cls.UNIT_TYPE_LISTINGS_CLASS)
             for i, element in enumerate(listing_elements):
@@ -466,8 +498,9 @@ class ApartmentsDotCom(scraper.Scraper):
                     unit_num=unit_num
                 )
                 other_unit_info = {
-                    'sqft': sqft,
-                    'pets_allowed': pets_allowed,
+                    Unit.OTHER_INFO_SQFT_KEY: sqft,
+                    Unit.OTHER_INFO_PETS_ALLOWED_KEY: pets_allowed,
+                    Unit.OTHER_INFO_PARKING_AVAILABLE_KEY: parking_available,
                 }
                 unit = Unit(
                     address=address,
@@ -571,10 +604,17 @@ class ApartmentsDotCom(scraper.Scraper):
             pets_allowed = cls._parse_pets_allowed(listing_content.text)
         except Exception as e:
             glog.error(f'error parsing pets allowed, skipping parsing: {url}:\n{traceback.format_exc()}')
+        
+        parking_available = None
+        try:
+            parking_available = cls._parse_parking_available(listing_content.text)
+        except Exception as e:
+            glog.error(f'error parsing parking availability, skipping parsing: {url}:\n{traceback.format_exc()}')
 
         other_unit_info = {
-            'sqft': sqft,
-            'pets_allowed': pets_allowed,
+            Unit.OTHER_INFO_SQFT_KEY: sqft,
+            Unit.OTHER_INFO_PETS_ALLOWED_KEY: pets_allowed,
+            Unit.OTHER_INFO_PARKING_AVAILABLE_KEY: parking_available,
         }
         unit = Unit(
             address=address,
@@ -598,7 +638,7 @@ class ApartmentsDotCom(scraper.Scraper):
         
         listings = []
         try:
-            soup = cls.get_url(search_result.url)
+            soup, _ = cls.get_url(search_result.url)
 
             all_results_tab_element = soup.find(attrs={cls.ALL_UNITS_TAB_ATTRIBUTE_NAME: cls.ALL_UNITS_TAB_ATTRIBUTE_VALUE})
             multi_unit = all_results_tab_element is not None

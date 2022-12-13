@@ -7,7 +7,7 @@ TODO
 - implement zillow scraper
 
 python scrapers/scripts/scrape_and_record.py \
-    --no-prod
+    --env=dev
 
 To see count of recent requests:
     select domain, count(*)

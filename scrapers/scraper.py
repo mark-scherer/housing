@@ -1,7 +1,7 @@
 '''Universal scraping interface.'''
 
 from functools import lru_cache
-from typing import NamedTuple, List, Dict
+from typing import NamedTuple, List, Dict, Tuple
 import argparse
 from urllib.parse import urlparse
 from datetime import datetime
@@ -20,8 +20,7 @@ from housing.data.db_client import DbClient
 parser = argparse.ArgumentParser()
 parser.add_argument('--ip_description', default=None, 
     help='description of IP address, needed if IP hasn\'t been logged before.')
-parser.add_argument('--prod', default=None, required=True, action=argparse.BooleanOptionalAction,
-    help='Is this running in prod enviorment?')
+parser.add_argument('--env', default=None, required=True, help='Env for logging requests')
 FLAGS = parser.parse_args()
 
 
@@ -35,8 +34,12 @@ class SearchResult(NamedTuple):
 class Scraper:
     '''Universal scraping interface.'''
 
+    SEARCH_REQUEST_PAGE_NUM_KEY = 'search_page_num'
+    SEARCH_REQUEST_NUM_RESULTS_KEY = 'search_num_results'
+    
     zipcode_client = uszipcode.SearchEngine()
     db_client = DbClient()
+    _db_session = None
     my_ip = None
 
     @classmethod
@@ -54,7 +57,7 @@ class Scraper:
         '''Search given ScrapingParams and then fully scrape listings from each result.'''
         
         # DEBUG: limiting number of resulted processed for now
-        search_results = cls.scrape_search_results(params=params)[0:10]
+        search_results = cls.scrape_search_results(params=params)[0:5]
         glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
 
         listings = []
@@ -74,19 +77,24 @@ class Scraper:
         return cls.zipcode_client.by_zipcode(zipcode)
 
     @classmethod
-    def get_url(cls, url: str, method: str = 'GET', headers: Dict = None) -> BeautifulSoup:
-        '''Download data from url.'''
+    def get_url(cls, url: str, method: str = 'GET', headers: Dict = None) -> Tuple[BeautifulSoup, Request]:
+        '''Download data from url.
+        
+        Return:
+        - soup
+        - logged Request object (to enable updating response_info downstream)
+        '''
         
         if headers is None:
             headers = {}
 
         # Log request
-        db_session = cls.db_client.session()
+        cls._db_session = cls.db_client.session()  # Start a new session for this request.
         if cls.my_ip is None:
             cls.my_ip = IpAddress.my_ip()
         ip_address_str = cls.my_ip
         
-        ip_address = db_session.query(IpAddress).filter(IpAddress.ip == ip_address_str).first()
+        ip_address = cls._db_session.query(IpAddress).filter(IpAddress.ip == ip_address_str).first()
         if not ip_address:
             if not FLAGS.ip_description:
                 raise ValueError(f'must provide --ip_description for unknown IP: {ip_address_str}')
@@ -94,31 +102,37 @@ class Scraper:
                 ip=ip_address_str,
                 description=FLAGS.ip_description
             )
-            db_session.add(ip_address)
-            db_session.flush()  # Need to flush to have id assigned
+            cls._db_session.add(ip_address)
+            cls._db_session.flush()  # Need to flush to have id assigned
         
         parsed_url = urlparse(url)
-        env = 'prod' if FLAGS.prod == True else 'dev'
+        env = FLAGS.env.lower()
+        request_info = {
+            'headers': headers
+        }
         logged_request = Request(
             ip=ip_address.id,
             domain=parsed_url.hostname,
+            method=method,
             endpoint=parsed_url.path,
-            environment=env
+            environment=env,
+            request_info=request_info,
         )
         logged_request.ip_id = ip_address.id
-        db_session.add(logged_request)
-        db_session.commit()
+        cls._db_session.add(logged_request)
+        cls._db_session.commit()
         
         response = requests.request(method, url, headers=headers)
 
+        logged_request.response_info = {}
         logged_request.finished_at = datetime.utcnow()
         logged_request.status_code = response.status_code
-        db_session.commit()
+        cls._db_session.commit()
 
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        return soup
+        return soup, logged_request
 
     @classmethod
     def is_valid_listing(cls, listing: Listing, params: config.ScrapingParams) -> bool:
