@@ -22,7 +22,7 @@ IP_SERVICE_URL = 'https://api.ipify.org'
 
 IP_SERVICE_RETRYABLE_STATUS_CODES = [502]
 def _ip_service_retryable_error(exception: Exception) -> bool:
-    return isinstance(exception, request.HttpError) and \
+    return isinstance(exception, requests.HttpError) and \
         exception.response.status_code in IP_SERVICE_RETRYABLE_STATUS_CODES
 
 IP_SERVICE_RETRY = retry(
@@ -124,9 +124,12 @@ class IpAddress:
     @IP_SERVICE_RETRY
     def my_ip(cls) -> str:
         '''Returns current machine IP.'''
+        glog.info(f'Trying to find own IP...')
         ip_service_response = requests.get(IP_SERVICE_URL)
         ip_service_response.raise_for_status()
-        return ip_service_response.text
+        ip_str = ip_service_response.text
+        glog.info(f'Got own ip: {ip_str}')
+        return ip_str
 
 
 @mapper_registry.mapped

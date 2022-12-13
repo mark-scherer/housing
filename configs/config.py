@@ -7,9 +7,6 @@ import re
 import glog
 import yaml
 
-# DEBUG: limiting returned results for now
-DEFAULT_MAX_RESULTS = 2
-
 # Custom type to handle Studios.
 # Studios represented as 0 Bedrooms
 BedroomCount = int
@@ -31,7 +28,6 @@ class ScrapingParams(NamedTuple):
 
     # Search metadata
     scrapers: FrozenSet[str]  # scrapers to use, not actually respected yet.
-    max_results: int = DEFAULT_MAX_RESULTS
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'ScrapingParams':

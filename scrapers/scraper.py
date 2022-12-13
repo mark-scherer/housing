@@ -1,7 +1,7 @@
 '''Universal scraping interface.'''
 
 from functools import lru_cache
-from typing import NamedTuple, List, Dict, Tuple
+from typing import NamedTuple, List, Dict, Tuple, Optional
 import argparse
 from urllib.parse import urlparse
 from datetime import datetime
@@ -18,6 +18,10 @@ from housing.data.schema import Listing, IpAddress, Request
 from housing.data.db_client import DbClient
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--max_search_results', default=10, required=True, type=int,
+    help='Result count at which to cutoff search with whatever has already been found.')
+parser.add_argument('--max_scraped_search_results', default=None, type=int,
+    help='Hard limit to the number of search results fully scraped.')
 parser.add_argument('--ip_description', default=None, 
     help='description of IP address, needed if IP hasn\'t been logged before.')
 parser.add_argument('--env', default=None, required=True, help='Env for logging requests')
@@ -36,6 +40,9 @@ class Scraper:
 
     SEARCH_REQUEST_PAGE_NUM_KEY = 'search_page_num'
     SEARCH_REQUEST_NUM_RESULTS_KEY = 'search_num_results'
+
+    MAX_SEARCH_RESULTS: int = FLAGS.max_search_results
+    MAX_SCRAPED_SEARCH_RESULTS: Optional[int] = FLAGS.max_scraped_search_results
     
     zipcode_client = uszipcode.SearchEngine()
     db_client = DbClient()
@@ -56,8 +63,9 @@ class Scraper:
     def search_and_scrape(cls, params: config.ScrapingParams) -> List[Listing]:
         '''Search given ScrapingParams and then fully scrape listings from each result.'''
         
-        # DEBUG: limiting number of resulted processed for now
-        search_results = cls.scrape_search_results(params=params)[0:5]
+        search_results = cls.scrape_search_results(params=params)
+        if cls.MAX_SCRAPED_SEARCH_RESULTS:
+                search_results = search_results[0:cls.MAX_SCRAPED_SEARCH_RESULTS]
         glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
 
         listings = []

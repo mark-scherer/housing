@@ -7,7 +7,9 @@ TODO
 - implement zillow scraper
 
 python scrapers/scripts/scrape_and_record.py \
-    --env=dev
+    --env=dev \
+    --max_search_results=5 \
+    --max_scraped_search_results=5
 
 To see count of recent requests:
     select domain, count(*)

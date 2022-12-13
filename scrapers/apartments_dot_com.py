@@ -415,9 +415,9 @@ class ApartmentsDotCom(scraper.Scraper):
                 if len(new_results) == 0:
                     continue_loop = False
                     glog.warning(f'found 0 new results, ending search.')
-                elif len(search_results) > params.max_results:
+                elif len(search_results) > cls.MAX_SEARCH_RESULTS:
                     continue_loop = False
-                    glog.warning(f'found {len(search_results)} search results, more than max_results: {params.max_results}... ending search.')
+                    glog.warning(f'found {len(search_results)} search results, more than MAX_SEARCH_RESULTS: {cls.MAX_SEARCH_RESULTS}... ending search.')
                 elif num_pages is not None and current_page >= num_pages:
                     continue_loop = False
                     glog.info(f'parsed all {current_page} / {num_pages} pages, ending search.')
