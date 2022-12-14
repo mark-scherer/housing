@@ -2,9 +2,10 @@
 
 python -u scrapers/scripts/scraper_load_test.py \
     --env=load_test \
-    --max_search_results=5 \
-    --max_scraped_search_results=5 \
-    2>&1 | tee ~/Downloads/housing_scraper_load_tests/test.txt
+    --max_search_results=1000 \
+    --max_scraped_search_results=500 \
+    --ip_description="madrone starbucks wifi"
+    2>&1 | tee ~/Downloads/housing_scraper_load_tests/apartment_dot_com_no_throttling.txt
 '''
 
 from datetime import datetime

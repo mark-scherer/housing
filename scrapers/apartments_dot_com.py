@@ -63,6 +63,7 @@ class ApartmentsDotCom(scraper.Scraper):
     # Search result scraping params.
     DATA_BLOCK_TYPE = 'application/ld+json'
     SEARCH_RESULT_ELEMENT_TYPE = 'article'
+    SEARCH_RESULT_CHILD_ELEMENT_TYPE = 'section'
     SEARCH_RESULT_ID_ATTRIBUTE = 'data-listingid'
     SEARCH_RESULT_URL_ATTRIBUTE = 'data-url'
     SEARCH_RESULT_ADDRESS_CLASSES = ['property-address']
@@ -184,7 +185,11 @@ class ApartmentsDotCom(scraper.Scraper):
         '''Helper for parsing address from the text combination from multiple elements.'''
         assert len(address_elements) > 0, 'could not find address element'
         full_address_str = ' '.join([element.text for element in address_elements])
-        address = Address.from_full_address(full_address_str)
+        try:
+            address = Address.from_full_address(full_address_str)
+        except AssertionError as e:
+            if Address.MISSING_ELEMENT_ERROR_REGEX in str(e):
+                raise scraper.KnownParsingError(e)
         return address
 
     
@@ -274,9 +279,16 @@ class ApartmentsDotCom(scraper.Scraper):
         price_str = price_str.replace('/mo', '')
         price_str = price_str.lower()
 
-        assert price_str not in cls.UNPARSEABLE_PRICE_STRS, f'unparseable price string: {price_str}'
+        if price_str in cls.UNPARSEABLE_PRICE_STRS:
+            raise scraper.KnownParsingError(f'unparseable price string: {price_str}')
 
-        return int(price_str)
+        result = None
+        try:
+            result = int(price_str)
+        except ValueError as e:
+            raise scraper.KnownParsingError(e)
+        
+        return result
 
 
     @classmethod
@@ -370,6 +382,13 @@ class ApartmentsDotCom(scraper.Scraper):
     def scrape_search_results(cls, params: config.ScrapingParams) -> List[ApartmentsDotComSearchResult]:
         '''Scrape search results from the search page.'''
 
+        def _is_search_result_element(tag: Tag) -> bool:
+            '''Helper for determining if tag is a search result element.'''
+            has_a_content_child = any(child.name == cls.SEARCH_RESULT_CHILD_ELEMENT_TYPE for child in tag.children)
+            return tag.name == cls.SEARCH_RESULT_ELEMENT_TYPE and \
+                tag.has_attr(cls.SEARCH_RESULT_ID_ATTRIBUTE) and \
+                has_a_content_child
+
         # Search zipcodes one at a time
         results = []
         for zipcode in params.zipcodes:
@@ -390,15 +409,19 @@ class ApartmentsDotCom(scraper.Scraper):
                 # _ = data_blocks[1]  # Info about virtual tours, not useful.
 
                 # Parse info available in html.
-                is_search_result_element = lambda tag: tag.name == cls.SEARCH_RESULT_ELEMENT_TYPE and tag.has_attr(cls.SEARCH_RESULT_ID_ATTRIBUTE)
-                search_result_elements = soup.find_all(is_search_result_element)
+                search_result_elements = soup.find_all(_is_search_result_element)
                 new_results = []
                 for i, result_element in enumerate(search_result_elements):
+                    listing_id = None
                     try:
+                        listing_id = result_element[cls.SEARCH_RESULT_ID_ATTRIBUTE]
                         parsed_result = cls._parse_search_result_element(result_element, search_url=search_url)
                         new_results.append(parsed_result)
+                    except scraper.KnownParsingError as e:
+                        glog.warning(f'Known error parsing search result element {listing_id}, skipping: {e}')
                     except Exception as e:
-                        glog.warning(f'error parsing search result element ({search_url}, page: {current_page}, element: {i}), skipping result: {traceback.format_exc()}')
+                        glog.warning(f'error parsing search result element ({search_url}, page: {current_page}, element: {i}, listing_id: {listing_id}), '
+                        f'skipping result: {traceback.format_exc()}')
                     
                 if num_pages is None:
                     num_pages = cls._parse_num_result_pages(soup) or cls.DEFAULT_NUM_PAGES
@@ -417,7 +440,7 @@ class ApartmentsDotCom(scraper.Scraper):
                     glog.warning(f'found 0 new results, ending search.')
                 elif len(search_results) > cls.MAX_SEARCH_RESULTS:
                     continue_loop = False
-                    glog.warning(f'found {len(search_results)} search results, more than MAX_SEARCH_RESULTS: {cls.MAX_SEARCH_RESULTS}... ending search.')
+                    glog.warning(f'found {len(search_results)} search results, more than max allow results: {cls.MAX_SEARCH_RESULTS}... ending search.')
                 elif num_pages is not None and current_page >= num_pages:
                     continue_loop = False
                     glog.info(f'parsed all {current_page} / {num_pages} pages, ending search.')
@@ -654,6 +677,8 @@ class ApartmentsDotCom(scraper.Scraper):
             # Filter to only valid listings.
             listings = [l for l in listings if cls.is_valid_listing(listing=l, params=scraping_params)]
 
+        except scraper.KnownParsingError as e:
+            glog.warning(f'Known error scraping listings from search result {search_result.id}, skipping: {e}')
         except Exception as e:
             raise RuntimeError(f'Error fully scraping searh result {search_result.id} ({search_result.url}): {e}') from e
         

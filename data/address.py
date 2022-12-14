@@ -20,6 +20,7 @@ class Address:
     ]
     SERIALIZATION_DELIMITER = '-'
     GOOGLE_MAPS_BASE_URL = 'https://www.google.com/maps/place/'
+    MISSING_ELEMENT_ERROR_REGEX = 'address string missing required element'
 
     short_address: str
     city: str

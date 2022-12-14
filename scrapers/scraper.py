@@ -5,6 +5,7 @@ from typing import NamedTuple, List, Dict, Tuple, Optional
 import argparse
 from urllib.parse import urlparse
 from datetime import datetime
+import random
 
 import requests
 from bs4 import BeautifulSoup
@@ -27,6 +28,10 @@ parser.add_argument('--ip_description', default=None,
 parser.add_argument('--env', default=None, required=True, help='Env for logging requests')
 FLAGS = parser.parse_args()
 
+
+class KnownParsingError(Exception):
+    '''Custom exception for known parsing errors that should be minimally logged.'''
+    pass
 
 class SearchResult(NamedTuple):
     '''Incomplete listing output from initial search that must be augmented with a specific search to convert to a Listing.'''
@@ -65,14 +70,18 @@ class Scraper:
         
         search_results = cls.scrape_search_results(params=params)
         if cls.MAX_SCRAPED_SEARCH_RESULTS:
-                search_results = search_results[0:cls.MAX_SCRAPED_SEARCH_RESULTS]
+            random.shuffle(search_results)
+            search_results = search_results[0:cls.MAX_SCRAPED_SEARCH_RESULTS]
         glog.info(f'{cls.__name__} scraper gathered {len(search_results)} search results, now scraping listings from each..')
 
         listings = []
         for i, result in enumerate(search_results):
-            result_listings = cls.scrape_listings(search_result=result, scraping_params=params)
-            listings += result_listings
-            glog.info(f'..scraped result {i} / {len(search_results)}, found {len(result_listings)} new listings - now {len(listings)} total')
+            try:
+                result_listings = cls.scrape_listings(search_result=result, scraping_params=params)
+                listings += result_listings
+                glog.info(f'..scraped result {i} / {len(search_results)}, found {len(result_listings)} new listings - now {len(listings)} total')
+            except KnownParsingError as e:
+                glog.warning(f'Known error scraping listing for search result: {e}')
         
         glog.info(f'..{cls.__name__} scraper finished scraping all {len(search_results)} search results, found {len(listings)} listings.')
         return listings
