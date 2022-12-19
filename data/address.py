@@ -18,7 +18,7 @@ class Address:
         'state',
         'zipcode'
     ]
-    SERIALIZATION_DELIMITER = '-'
+    SERIALIZATION_DELIMITER = '~'  # Cannot be dash or underscore as these are used in actual addresses
     GOOGLE_MAPS_BASE_URL = 'https://www.google.com/maps/place/'
     MISSING_ELEMENT_ERROR_REGEX = 'address string missing required element'
 
@@ -46,7 +46,23 @@ class Address:
 
     @classmethod
     def from_string(cls, input: str) -> 'Address':
-        element_values = {field: value for field, value in zip(cls.SERIALIZATION_ELEMENT_FIELDS, input.split(cls.SERIALIZATION_DELIMITER))}
+        serialized_elements = input.split(cls.SERIALIZATION_DELIMITER)
+        
+        # Sometimes unit num includes a dash.
+        if len(serialized_elements) == len(cls.SERIALIZATION_ELEMENT_FIELDS) + 1:
+            unit_num = '-'.join(serialized_elements[0:2])
+            serialized_elements = [unit_num] + serialized_elements[2:]
+
+        # Unit num might be missing.
+        if len(serialized_elements) == len(cls.SERIALIZATION_ELEMENT_FIELDS):
+            serialized_fields = cls.SERIALIZATION_ELEMENT_FIELDS
+        elif len(serialized_elements) == len(cls.SERIALIZATION_ELEMENT_FIELDS) - 1:
+            serialized_fields = cls.SERIALIZATION_ELEMENT_FIELDS[1:]
+        else:
+            raise ValueError(f'Parsed an unrecognized number of serialized address elements ({len(serialized_elements)}, expecting {len(cls.SERIALIZATION_ELEMENT_FIELDS)}): ' \
+                f'{input}')
+
+        element_values = {field: value for field, value in zip(serialized_fields, serialized_elements)}
         result = Address(**element_values)
         return result
 

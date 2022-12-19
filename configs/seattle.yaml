@@ -1,8 +1,8 @@
-# Config for load testing a scraper. Includes a representivate zipcode set
+# Fremont & Ballard in Seattle
 
 config:
 
-  spreadsheet_id: ''
+  spreadsheet_id: '1wfZPDoTCntmDU80isbjbbjhrATx7Kpk62ZD4Ai6UdTQ'
 
   scraping_params:
     
@@ -11,17 +11,9 @@ config:
 
     zipcodes:
 
-      # SF zipcodes
-      - 94158  # Mission Bay
-      - 94107  # Dogpatch, Soma
-
       # Seattle zipcodes
       - 98103  # Fremont, Green Lake
       - 98107  # Ballard
-
-      # SD zipcodes
-      - 92107  # OB
-      - 92109  # PB, Mission Beach
     
     min_bedrooms: 1
     max_bedrooms: 2

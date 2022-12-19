@@ -71,7 +71,7 @@ class GoogleSheetsClient:
 
         self.creds = self._get_creds()
         self.service = build('sheets', 'v4', credentials=self.creds)
-        self.sheet = self.service.spreadsheets()
+        self.sheet_service = self.service.spreadsheets()
         
         self.spreadsheet_id = spreadsheet_id
         self.possible_headers = possible_headers
@@ -89,7 +89,7 @@ class GoogleSheetsClient:
 
         Return: Nested list of formatted cell data.
         '''
-        request = self.sheet.values().get(spreadsheetId=self.spreadsheet_id, range=_range)
+        request =self.sheet_service.values().get(spreadsheetId=self.spreadsheet_id, range=_range)
         response = request.execute()
         assert response and response['values']
         sheet_data = response['values']
@@ -144,7 +144,7 @@ class GoogleSheetsClient:
             _values: values to set in specified range.
         '''
         request_body = {'values': _values}
-        request = self.sheet.values().update(
+        request =self.sheet_service.values().update(
             spreadsheetId=self.spreadsheet_id,
             range=_range,
             body=request_body,
@@ -177,7 +177,7 @@ class GoogleSheetsClient:
             
             Return: hash of row values in primary key fields.
             '''
-            return tuple(row[key] for key in primary_keys)
+            return tuple(row[key] if key in row else None for key in primary_keys)
 
 
         current_sheet_data_smart = self.smart_get()
@@ -225,7 +225,7 @@ class GoogleSheetsClient:
             'data': update_requests,
             'valueInputOption': UPDATE_VALUE_INPUT_OPTION,
         }
-        request = self.sheet.values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
+        request =self.sheet_service.values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
         request.execute()
 
         # Append rows that weren't found, if specified.
@@ -257,7 +257,7 @@ class GoogleSheetsClient:
             _values: values to append to found 'table'.
         '''
         request_body = {'values': _values}
-        request = self.sheet.values().append(
+        request =self.sheet_service.values().append(
             spreadsheetId=self.spreadsheet_id,
             range=_range,
             body=request_body,
@@ -303,12 +303,12 @@ class GoogleSheetsClient:
         append_width = max_col_num - min_col_num
         append_data = []
         for i, row_to_append in enumerate(_values):
-            row_data = [''] * min_col_num
+            row_data = [''] * (max_col_num + 1)  # Plus 1 b/c cols are 0-indexed but array length is not.
             populated_cells = 0
             for header, col_num in self.header_to_col_num.items():
                 cell_data = row_to_append.get(header)
                 if cell_data:
-                    row_data.append(cell_data)
+                    row_data[min_col_num + col_num] = cell_data
                     populated_cells += 1
             
             # Verify at least some overlap between found headers and row to append.
@@ -351,7 +351,7 @@ class GoogleSheetsClient:
             }
         }
         request_body = {'requests': [sort_request]}
-        request = self.sheet.batchUpdate(
+        request =self.sheet_service.batchUpdate(
             spreadsheetId=self.spreadsheet_id,
             body=request_body
         )
@@ -398,17 +398,6 @@ class GoogleSheetsClient:
         for i, existing_row in enumerate(sheet_data):
             is_header_row = False
             for j, existing_cell in enumerate(existing_row):
-                # for possible_header in possible_headers:
-                    # if _is_headers_match(possible_header, existing_cell):
-                    #     if possible_header in header_to_col_num:
-                    #         raise ValueError(f'Found header {possible_header} twice: cols {header_to_col_num[possible_header]} & {j}')
-
-                    #     header_row_num = i
-                    #     header_to_col_num[possible_header] = j
-                        
-                    #     # Since found header match, stop trying to match this cell with other headers.
-                    #     break
-
                     # Finding just one header match is enough to ID this as the header row.
                     if any(_is_headers_match(possible_header, existing_cell) for possible_header in possible_headers):
                         is_header_row = True

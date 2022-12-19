@@ -1,8 +1,8 @@
 '''Client for interacting with the DB.'''
 
-from typing import List, Dict
+from typing import List, Dict, Dict, Any
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL, Connection
 from sqlalchemy.orm import sessionmaker, Session
 import yaml
@@ -34,7 +34,7 @@ class DbClient:
         return sessionmaker(bind=self.engine)()
 
 
-    def query(self, query: str) -> List[Dict]:
+    def query(self, query: str, params: Dict[str, Any]) -> List[Dict]:
         '''Run a query on the DB.'''
         connection = Connection(self.engine)
-        return connection.execute(query).all()
+        return connection.execute(text(query), params).all()

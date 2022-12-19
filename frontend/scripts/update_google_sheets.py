@@ -5,7 +5,7 @@ import glog
 from housing.configs.config import Config
 from housing.frontend.update_google_sheet import update_google_sheet
 
-CONFIG_PATH = '/Users/mark/Documents/housing/configs/dev.yaml'
+CONFIG_PATH = '/Users/mark/Documents/housing/configs/seattle.yaml'
 
 
 def main():

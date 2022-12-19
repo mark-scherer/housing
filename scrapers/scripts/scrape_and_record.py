@@ -34,7 +34,8 @@ from housing.scrapers.scraper import Scraper
 
 # Move these to args!
 CONFIG_PATHS = [
-    '/Users/mark/Documents/housing/configs/dev.yaml'
+    # '/Users/mark/Documents/housing/configs/dev.yaml'
+    '/Users/mark/Documents/housing/configs/scraper_load_test.yaml'
 ]
 
 SCRAPERS = [

@@ -15,6 +15,7 @@ from housing.frontend.google_sheets_client import GoogleSheetsClient, SheetData
 UNIT_LISTINGS_QUERY = '''
     with latest_listings as (
         select distinct on (unit_id)
+            id,
             unit_id,
             price
         from housing_listings
@@ -30,16 +31,35 @@ UNIT_LISTINGS_QUERY = '''
     select
         units.address_str,
         units.bedrooms,
+        units.bathrooms,
+        (units.other_info->>'sqft')::integer as sqft,
+        units.other_info->>'pets_allowed' as pets_allowed,
+        units.other_info->>'parking_available' as parking_available,
         min(listings.created_at) as first_found,
         max(listings.created_at) as last_found,
         array_agg(distinct listings.source) as sources,
         latest_listings.price as current_price,
-        array_agg(latest_listings_by_source.url) as listing_urls
+        array_agg(latest_listings_by_source.url) as listing_urls,
+        units.id as unit_id,
+        latest_listings.id as latest_listing_id
     from housing_units units
         join housing_listings listings on units.id = listings.unit_id
         join latest_listings on units.id = latest_listings.unit_id
         join latest_listings_by_source on units.id = latest_listings_by_source.unit_id
-    group by units.address_str, units.bedrooms, latest_listings.price
+    where
+        units.zipcode = any(:zipcodes) and
+        units.bedrooms >= :min_bedrooms and units.bedrooms <= :max_bedrooms and
+        latest_listings.price >= :min_price and latest_listings.price <= :max_price
+    group by
+        units.address_str,
+        units.bedrooms,
+        units.bathrooms,
+        (units.other_info->>'sqft')::integer,
+        units.other_info->>'pets_allowed',
+        units.other_info->>'parking_available',
+        latest_listings.price,
+        units.id,
+        latest_listings.id
 '''
 LISTING_TS_FORMAT = '%m/%d/%y'
 SORT_HEADER = 'sort_value'
@@ -61,9 +81,15 @@ class UnitListing(NamedTuple):
     location: str  # separate location link, necessary b/c can't use a link in a primary key column.
     current_price: int
     bedrooms: str
+    bathrooms: str
+    sqft: int
+    pets_allowed: str
+    parking_available: str
     sources: List[str]
     first_found: datetime
     last_found: datetime
+    unit_id: int
+    latest_listing_id: int
 
     @classmethod
     def from_dict(cls, input: Dict) -> 'UnitListing':
@@ -102,7 +128,7 @@ class UnitListing(NamedTuple):
         return result
 
 
-def _sheet_metadata(config: Config) -> SheetData:
+def _sheet_metadata(config: Config, upserted_data: List[UnitListing]) -> SheetData:
     '''Generate sheet metadata above the header row.'''
     scraping_params = config.scraping_params
 
@@ -110,7 +136,7 @@ def _sheet_metadata(config: Config) -> SheetData:
         result = None
         min_bedrooms = scraping_params.min_bedrooms
         max_bedrooms = scraping_params.max_bedrooms
-        if min_bedrooms == min_bedrooms:
+        if min_bedrooms == max_bedrooms:
             result = f'{min_bedrooms} BR'
         else:
             result = f'{min_bedrooms}-{max_bedrooms} BR'
@@ -123,7 +149,7 @@ def _sheet_metadata(config: Config) -> SheetData:
         if min_price == max_price:
             result = f'${min_price}'
         else:
-            result = f'${min_price}-{max_price}'
+            result = f'${min_price}-${max_price}'
         return result
 
     def _zipcodes_str() -> str:
@@ -133,7 +159,8 @@ def _sheet_metadata(config: Config) -> SheetData:
         return ", ".join(scraping_params.scrapers)
 
     # Add generation metadata.
-    generation_metadata = f'Rows are added programtically by apt-bot. Last updated: {datetime.now().strftime(UPDATED_AT_TS_FORMAT)}'
+    generation_metadata = f'Rows are added programtically by apt-bot. Last updated: {datetime.now().strftime(UPDATED_AT_TS_FORMAT)} ' \
+        f'with {len(upserted_data)} listings.'
 
     # Add config overview.
     config_info = f'Scraping {_scrapers_str()} for: {_bedrooms_str()}, {_price_str()} in zipcodes: {_zipcodes_str()}'
@@ -150,11 +177,20 @@ def update_google_sheet(config: Config) -> None:
 
     db_client = DbClient()
     possible_headers = UnitListing._fields
-    sheets_client = GoogleSheetsClient(config.sheet_id, possible_headers=possible_headers)
+    sheets_client = GoogleSheetsClient(config.spreadsheet_id, possible_headers=possible_headers)
 
     # Fetch DB data
-    query_data = db_client.query(UNIT_LISTINGS_QUERY)
-    results = [UnitListing.from_dict(db_row) for db_row in query_data]
+    query_params = config.scraping_params.to_dict()
+    query_params['zipcodes'] = list(config.scraping_params.zipcodes)
+    query_data = db_client.query(UNIT_LISTINGS_QUERY, query_params)
+    results = []
+    for db_row in query_data:
+        parsed_db_row = {}
+        try:
+            parsed_db_row = UnitListing.from_dict(db_row)
+            results.append(parsed_db_row)
+        except Exception as e:
+            raise RuntimeError(f'Error parsing db row: {db_row} (parsed into {json.dumps(parsed_db_row)})') from e
     glog.info(f'Fetched {len(results)} unit listings from DB for config: {config.name}')
 
     # Find necessary updates.
@@ -166,7 +202,7 @@ def update_google_sheet(config: Config) -> None:
     glog.info(f'..updated sheet with new db data.')
 
     # Fill in sheet metadata.
-    metadata = _sheet_metadata(config)
+    metadata = _sheet_metadata(config, upserted_data=results)
     metadata_top_row_num = sheets_client.header_row_num - len(metadata)
     assert metadata_top_row_num >= 0, f'Not enough room for {len(metadata)} rows with current header position: row {sheets_client.header_row_num}'
     metadata_tl = GoogleSheetsClient.row_col_num_to_A1(row_num=metadata_top_row_num, col_num=0)

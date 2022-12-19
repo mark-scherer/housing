@@ -41,13 +41,16 @@ class ScrapingParams(NamedTuple):
         data['scrapers'] = frozenset_from_list(data['scrapers'])
         return ScrapingParams(**data)
 
+    def to_dict(self) -> Dict:
+        return self._asdict()
+
 
 class Config(NamedTuple):
     '''Housing config.'''
 
     name: str  # This is parsed from filename.
     scraping_params: ScrapingParams
-    sheet_id: str  # Google sheet id
+    spreadsheet_id: str  # Google sheet id
 
     def to_dict(self) -> Dict:
         '''NamedTuple._asdict() only serializes top-level fields.

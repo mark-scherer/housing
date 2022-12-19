@@ -3,7 +3,7 @@
 
 config:
 
-  sheet_id: 1Z1Yh__KTKWY6WT1OfIWQS2zB44-cZmLtFfqj-qjYxbQ
+  spreadsheet_id: 1Z1Yh__KTKWY6WT1OfIWQS2zB44-cZmLtFfqj-qjYxbQ
 
   scraping_params:
     
