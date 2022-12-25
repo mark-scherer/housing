@@ -16,7 +16,7 @@ config:
       - 98107  # Ballard
     
     min_bedrooms: 1
-    max_bedrooms: 2
+    max_bedrooms: 3
 
     min_price: 0
     max_price: 4500

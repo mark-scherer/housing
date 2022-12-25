@@ -1,8 +1,9 @@
 '''Fetch data from DB and update a google sheet'''
 
-from typing import List, Dict, NamedTuple
+from typing import List, Dict, Optional
 import json
 from datetime import datetime
+from dataclasses import dataclass, fields, asdict
 
 import glog
 
@@ -63,10 +64,11 @@ UNIT_LISTINGS_QUERY = '''
 '''
 LISTING_TS_FORMAT = '%m/%d/%y'
 SORT_HEADER = 'sort_value'
-UPDATED_AT_TS_FORMAT = '%a, %m/%d/%y at %I:%M%p'
+UPDATED_AT_TS_FORMAT = '%m/%d/%y %I:%M%p'
 
 
-class UnitListing(NamedTuple):
+@dataclass
+class UnitListing:
     '''Data contained in a sheet row: a unit with the latest listing info.
     
     The field names here should be the sanitized version of sheet headers to update!
@@ -75,21 +77,87 @@ class UnitListing(NamedTuple):
     PRIMARY_KEYS = ['unit', 'address', 'zipcode']
     LOCATION_TEXT = 'maps link'
 
+    # Scoring class vars
+    TRUE_STRINGS = ['true', 't']
+    FALSE_STRINGS = ['false', 'f']
+    MIN_SCORED_PRICE = 1000
+    MAX_SCORED_PRICE = 5000
+    MAX_PRICE_SCORE = 50
+    MIN_PRICE_SCORE = 0
+    SCORE_PER_SQFT = 25 / 1000  # 25 pts per 1000 sqft
+    SCORE_BY_BEDROOM = [0, 40, 20]
+    SCORE_PER_BATHROOM = 20
+    PETS_ALLOWED_SCORE = 20
+    PARKING_AVAILABLE_SCORE = 20
+
     unit: int
     address: str  # Just the short_address portion
     zipcode: str
     location: str  # separate location link, necessary b/c can't use a link in a primary key column.
     current_price: int
-    bedrooms: str
-    bathrooms: str
+    bedrooms: int
+    bathrooms: int
     sqft: int
-    pets_allowed: str
-    parking_available: str
+    pets_allowed: bool
+    parking_available: bool
     sources: List[str]
     first_found: datetime
     last_found: datetime
     unit_id: int
     latest_listing_id: int
+    predicted_score: Optional[float] = None
+
+    @classmethod
+    def _strToBool(cls, input: str) -> bool:
+        '''Helper for parsing stringifed postgres bools back into actual bools'''
+        result = None
+        if input:
+            if input.lower() in cls.TRUE_STRINGS:
+                result = True
+            elif input.lower() in cls.FALSE_STRINGS:
+                result = False
+            else:
+                raise ValueError(f'Could not parse bool from string: {input}')
+
+        return result
+
+    def score(self) -> float:
+        '''Fill in & return predicted score for UnitListing.
+        
+        Score is not bounded and doesn't realy represent anything specific, but is deterministic for a UnitListing.
+        '''
+        score = 0
+
+        # Start score by weighing price.
+        saturated_price = max(min(self.MAX_SCORED_PRICE, self.current_price), self.MIN_SCORED_PRICE)
+        price_score_fraction = (saturated_price - self.MIN_PRICE_SCORE) / (self.MAX_SCORED_PRICE - self.MIN_SCORED_PRICE)
+        price_score = (price_score_fraction * (self.MAX_PRICE_SCORE - self.MIN_PRICE_SCORE)) + self.MIN_PRICE_SCORE
+        score += price_score
+
+        # Factor in sqft.
+        if self.sqft:
+            sqft_score = self.sqft * self.SCORE_PER_SQFT
+            score += sqft_score
+
+        # Factor in bedrooms, bathrooms.
+        bedroom_score = 0
+        for i in range(int(self.bedrooms)):
+            bedroom_score += self.SCORE_BY_BEDROOM[i]
+        bathrooms_score = int(self.bathrooms) * self.SCORE_PER_BATHROOM
+        score += bedroom_score + bathrooms_score
+
+        # Factor in pets allowed, parking availability.
+        pets = self._strToBool(self.pets_allowed)
+        if pets is not None:
+            pets_score = int(pets) * self.PETS_ALLOWED_SCORE
+            score += pets_score
+        parking = self._strToBool(self.parking_available)
+        if parking is not None:
+            parking_score = int(parking) * self.PARKING_AVAILABLE_SCORE
+            score += parking_score
+
+        self.predicted_score = score
+        return score
 
     @classmethod
     def from_dict(cls, input: Dict) -> 'UnitListing':
@@ -124,7 +192,7 @@ class UnitListing(NamedTuple):
 
     def to_dict(self) -> Dict:
         '''Custom dict conversion method in case any fields need special handling.'''
-        result = self._asdict()
+        result = asdict(self)
         return result
 
 
@@ -158,25 +226,21 @@ def _sheet_metadata(config: Config, upserted_data: List[UnitListing]) -> SheetDa
     def _scrapers_str() -> str:
         return ", ".join(scraping_params.scrapers)
 
-    # Add generation metadata.
-    generation_metadata = f'Rows are added programtically by apt-bot. Last updated: {datetime.now().strftime(UPDATED_AT_TS_FORMAT)} ' \
-        f'with {len(upserted_data)} listings.'
-
-    # Add config overview.
-    config_info = f'Scraping {_scrapers_str()} for: {_bedrooms_str()}, {_price_str()} in zipcodes: {_zipcodes_str()}'
+    explanation_row = f'Rows are added programtically by apt-bot from {_scrapers_str()} for: {_bedrooms_str()}, {_price_str()} in zipcodes: {_zipcodes_str()}. ' \
+        f'Last found {len(upserted_data)} listings at:'
+    ts_row = datetime.now().strftime(UPDATED_AT_TS_FORMAT)
 
     return [
-        [generation_metadata],
-        [config_info],
+        [explanation_row],
+        [ts_row],
     ]
-
 
 
 def update_google_sheet(config: Config) -> None:
     '''Fetches DB data for specified config and updates its google sheet.'''
 
     db_client = DbClient()
-    possible_headers = UnitListing._fields
+    possible_headers = [f.name for f in fields(UnitListing)]
     sheets_client = GoogleSheetsClient(config.spreadsheet_id, possible_headers=possible_headers)
 
     # Fetch DB data
@@ -188,6 +252,7 @@ def update_google_sheet(config: Config) -> None:
         parsed_db_row = {}
         try:
             parsed_db_row = UnitListing.from_dict(db_row)
+            parsed_db_row.score()
             results.append(parsed_db_row)
         except Exception as e:
             raise RuntimeError(f'Error parsing db row: {db_row} (parsed into {json.dumps(parsed_db_row)})') from e
@@ -198,7 +263,7 @@ def update_google_sheet(config: Config) -> None:
     # glog.info(f'Attempting to make {len(new_sheet_data)} updates to the sheet: {json.dumps(new_sheet_data)}')
     
     # Update sheet.
-    sheets_client.smart_update(_values=new_sheet_data, primary_keys=UnitListing.PRIMARY_KEYS, sort_key=SORT_HEADER)
+    sheets_client.smart_update(_values=new_sheet_data, primary_keys=UnitListing.PRIMARY_KEYS, sort_key=SORT_HEADER, sort_asc=False)
     glog.info(f'..updated sheet with new db data.')
 
     # Fill in sheet metadata.

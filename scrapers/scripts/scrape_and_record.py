@@ -8,8 +8,8 @@ TODO
 
 python scrapers/scripts/scrape_and_record.py \
     --env=dev \
-    --max_search_results=5 \
-    --max_scraped_search_results=5
+    --max_search_results=500 \
+    --max_scraped_search_results=500
 
 To see count of recent requests:
     select domain, count(*)
@@ -35,7 +35,8 @@ from housing.scrapers.scraper import Scraper
 # Move these to args!
 CONFIG_PATHS = [
     # '/Users/mark/Documents/housing/configs/dev.yaml'
-    '/Users/mark/Documents/housing/configs/scraper_load_test.yaml'
+    # '/Users/mark/Documents/housing/configs/scraper_load_test.yaml'
+    '/Users/mark/Documents/housing/configs/seattle.yaml'
 ]
 
 SCRAPERS = [
