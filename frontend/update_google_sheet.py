@@ -11,6 +11,7 @@ import glog
 from housing.configs.config import Config
 from housing.data.unit_listing import UnitListing
 from housing.frontend.google_sheets_client import GoogleSheetsClient, SheetData
+from housing.models import score
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dry_run', action=argparse.BooleanOptionalAction, required=True,
@@ -69,6 +70,8 @@ def update_google_sheet(config: Config) -> None:
 
     # Fetch DB data
     results = UnitListing.get_all_unit_listings(config.scraping_params)
+    for ul in results:
+        ul.predicted_score, _ = score.score(ul)
     glog.info(f'Fetched {len(results)} unit listings from DB for config: {config.name}')
 
     # Find necessary updates.

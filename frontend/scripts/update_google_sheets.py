@@ -2,6 +2,9 @@
 
 python frontend/scripts/update_google_sheets.py \
     --no-dry_run
+
+TODO: BUGFIX:
+- newly appended rows overwrite calculated columns
 '''
 
 import glog
