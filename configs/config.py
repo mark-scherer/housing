@@ -2,10 +2,10 @@
 
 from os import path
 from typing import NamedTuple, FrozenSet, Dict, Optional, List
-import re
 
 import glog
-import yaml
+
+from housing import utils
 
 # Custom type to handle Studios.
 # Studios represented as 0 Bedrooms
@@ -75,25 +75,11 @@ class Config(NamedTuple):
     @classmethod
     def load_from_file(cls, filepath: str) -> 'Config':
         '''Load Config from a yaml file.'''
+        config_data = utils.load_yaml(filepath)
+        assert 'config' in config_data, 'Loaded data does not have highest-level config field'
         
-        # Validate passed filepath
         filepath_without_ext, ext = path.splitext(filepath)
-        assert re.search('^\.y(a)?ml', ext) is not None, \
-            f'Filepath must be yaml, found: {ext}: {filepath}'
-        assert path.exists(filepath), f'File not found: {filepath}'
-
-        # Load yaml and parse.
-        config = None
-        with open(filepath, 'r') as file:
-            try:
-                config_data = yaml.safe_load(file)
-                assert 'config' in config_data, 'Loaded data does not have highest-level config field'
-                
-                name = path.basename(filepath_without_ext)
-                config = cls.from_dict(data=config_data['config'], name=name)
-
-            except Exception as e:
-                exception_type = type(e)
-                raise exception_type(f'Error parsing yaml at {filepath}: {e}') from e
+        name = path.basename(filepath_without_ext)
+        config = cls.from_dict(data=config_data['config'], name=name)
 
         return config
