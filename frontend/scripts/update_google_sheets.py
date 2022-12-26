@@ -1,4 +1,8 @@
-'''Fetch results from DB and update google sheet.'''
+'''Fetch results from DB and update google sheet.
+
+python frontend/scripts/update_google_sheets.py \
+    --no-dry_run
+'''
 
 import glog
 
