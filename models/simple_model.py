@@ -44,27 +44,25 @@ class SimpleModel(Model):
 
         # Bedrooms.
         bedroom_score = 0
-        for i in range(int(unit_listing.bedrooms)):
+        for i in range(unit_listing.bedrooms):
             assert len(self.SCORE_BY_BEDROOM) > i, f'Do not have scoring set for bedroom #{i}'
             bedroom_score += self.SCORE_BY_BEDROOM[i]
         score_components['bedrooms'] = bedroom_score
 
         # Bathrooms.
-        bathrooms_score = int(unit_listing.bathrooms) * self.SCORE_PER_BATHROOM
+        bathrooms_score = unit_listing.bathrooms * self.SCORE_PER_BATHROOM
         score_components['bathrooms'] = bathrooms_score
 
         # Pets.
         pets_score = 0
-        pets = self._strToBool(unit_listing.pets_allowed)
-        if pets is not None:
-            pets_score = int(pets) * self.PETS_ALLOWED_SCORE
+        if unit_listing.pets_allowed is not None:
+            pets_score = int(unit_listing.pets_allowed) * self.PETS_ALLOWED_SCORE
         score_components['pets'] = pets_score
 
         # Parking.
         parking_score = 0
-        parking = self._strToBool(unit_listing.parking_available)
-        if parking is not None:
-            parking_score = int(parking) * self.PARKING_AVAILABLE_SCORE
+        if unit_listing.parking_available is not None:
+            parking_score = int(unit_listing.parking_available) * self.PARKING_AVAILABLE_SCORE
         score_components['parking'] = parking_score
 
         score = sum(score_components.values())

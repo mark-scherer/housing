@@ -4,7 +4,7 @@ python frontend/scripts/update_google_sheets.py \
     --no-dry_run
 
 TODO: BUGFIX:
-- newly appended rows overwrite calculated columns
+- newly appended rows overwrite calculated columns, so they aren't filled in completely and aren't sorted properly
 '''
 
 import glog

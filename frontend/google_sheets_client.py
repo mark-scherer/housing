@@ -168,6 +168,12 @@ class GoogleSheetsClient:
             primary_keys: headers with primary key to find row to update by.
             upsert: if true will append rows it does not find in the current sheet data.
             sort_key, sort_asc: see smart_sort()
+
+        Raises:
+            - ValueError:
+                - If a row in _values does not specify a value for any of primary_keys fields.
+                - If a row in _values cannot be found in the sheet by its specified primary_keys and upsert = false.
+                - If none of the specified columns to be updated by a row in _values are found in the sheet.
         '''
         def row_to_primary_key_values(row: Dict) -> Tuple:
             '''Helper to reliably and consistently create row primary key hashs.
@@ -207,12 +213,14 @@ class GoogleSheetsClient:
                     raise ValueError(f'Could not find primary key values {primary_key_values} for updated row {i} in sheet: primary_key_values: {primary_keys_to_row_num.keys()}')
             row_num = primary_keys_to_row_num[primary_key_values]
 
+            any_update_col_found = False
             for header, updated_cell in updated_row.items():
                 if header in primary_keys:
                     continue
 
                 if header not in self.header_to_col_num:
-                    raise ValueError(f'Could not find header {header} in sheet, which is requested to be updated by update row {i}: found headers: {self.header_to_col_num.keys()}')    
+                    continue
+                any_update_col_found = True
                 col_num = self.header_to_col_num[header]
                 
                 update = {
@@ -220,6 +228,9 @@ class GoogleSheetsClient:
                     'values': [[updated_cell]]
                 }
                 update_requests.append(update)
+            
+            if not any_update_col_found:
+                raise ValueError(f'Could not any specified update headers in sheet for row {i}: found headers: {self.header_to_col_num.keys()}, trying to update: {json.dumps(updated_row)}')    
         
         request_body = {
             'data': update_requests,

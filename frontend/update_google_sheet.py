@@ -3,7 +3,6 @@
 from typing import List, Dict
 import json
 from datetime import datetime
-from dataclasses import fields
 import argparse
 
 import glog
@@ -20,6 +19,7 @@ FLAGS = parser.parse_args()
 
 SORT_HEADER = 'sort_value'
 UPDATED_AT_TS_FORMAT = '%m/%d/%y %I:%M%p'
+DEBUG_UPDATE_DUMP_FILEPATH = '/Users/mark/Downloads/housing_google_sheet_update_data.json'
 
 
 def _sheet_metadata(config: Config, upserted_data: List[UnitListing]) -> SheetData:
@@ -65,7 +65,7 @@ def _sheet_metadata(config: Config, upserted_data: List[UnitListing]) -> SheetDa
 def update_google_sheet(config: Config) -> None:
     '''Fetches DB data for specified config and updates its google sheet.'''
     
-    possible_headers = [f.name for f in fields(UnitListing)]
+    possible_headers = UnitListing.fields()
     sheets_client = GoogleSheetsClient(config.spreadsheet_id, possible_headers=possible_headers)
 
     # Fetch DB data
@@ -75,13 +75,16 @@ def update_google_sheet(config: Config) -> None:
     glog.info(f'Fetched {len(results)} unit listings from DB for config: {config.name}')
 
     # Find necessary updates.
-    new_sheet_data = [sheet_row.to_dict() for sheet_row in results]
-    # glog.info(f'Attempting to make {len(new_sheet_data)} updates to the sheet: {json.dumps(new_sheet_data)}')
+    new_sheet_data = [sheet_row.to_sheet_update() for sheet_row in results]
     
     # Update sheet.
     if not FLAGS.dry_run:
         sheets_client.smart_update(_values=new_sheet_data, primary_keys=UnitListing.PRIMARY_KEYS, sort_key=SORT_HEADER, sort_asc=False)
-    glog.info(f'..updated sheet with new db data.')
+        glog.info(f'..updated sheet with new db data.')
+    else:
+        with open(DEBUG_UPDATE_DUMP_FILEPATH, 'w', encoding='utf-8') as f:
+            json.dump(new_sheet_data, f, ensure_ascii=False, indent=4)
+        glog.info(f'wrote update of {len(new_sheet_data)} sheet rows to {DEBUG_UPDATE_DUMP_FILEPATH}')
 
     # Fill in sheet metadata.
     metadata = _sheet_metadata(config, upserted_data=results)

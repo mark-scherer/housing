@@ -12,9 +12,6 @@ class ScoreReturn(NamedTuple):
 class Model:
     '''Abstract class for models to score UnitListings'''
 
-    TRUE_STRINGS = ['true', 't']
-    FALSE_STRINGS = ['false', 'f']
-
     def score(self, unit_listing: UnitListing) -> ScoreReturn:
         '''Score a single UnitListings.
         
@@ -22,17 +19,3 @@ class Model:
         model instances have specific weights.
         '''
         raise NotImplementedError(f'must be overridden in {cls.__name__}')
-
-    @classmethod
-    def _strToBool(cls, input: str) -> bool:
-        '''Helper for parsing stringifed postgres bools back into actual bools'''
-        result = None
-        if input:
-            if input.lower() in cls.TRUE_STRINGS:
-                result = True
-            elif input.lower() in cls.FALSE_STRINGS:
-                result = False
-            else:
-                raise ValueError(f'Could not parse bool from string: {input}')
-
-        return result
