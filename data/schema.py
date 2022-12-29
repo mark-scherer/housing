@@ -1,14 +1,16 @@
 '''Database schema.'''
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 import requests
 import glog
 from sqlalchemy import Column, engine_from_config, ForeignKey, JSON, Integer, String, Table, DateTime, Boolean, Float
 from sqlalchemy.sql import func, expression
+from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.orm import registry, relationship
 from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.types import ARRAY
 from retrying import retry
 
 from housing.configs import config
@@ -96,6 +98,37 @@ class Listing:
     def to_dict(self) -> Dict:
         result = asdict(self)
         result['unit'] = self.unit.to_dict()
+        return result
+
+
+@mapper_registry.mapped
+@dataclass
+class Score:
+    '''User score for a unit.'''
+
+    __table__ = Table(
+        'housing_scores',
+        mapper_registry.metadata,
+        Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+        Column('unit_id', Integer, ForeignKey('housing_units.id'), nullable=False, index=True),
+        Column('user', String[50], nullable=False),
+        Column('type', String[50], nullable=False),
+        Column('configs', ARRAY(String)),
+        Column('score', Float),
+
+        UniqueConstraint('unit_id', 'user', 'type'),
+    )
+
+    id: int = field(init=False)
+    unit_id: int
+    user: str
+    type: str
+    configs: List[str]
+    score: float
+
+    def to_dict(self) -> Dict:
+        result = asdict(self)
         return result
 
 
